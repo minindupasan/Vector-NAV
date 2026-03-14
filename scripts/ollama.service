@@ -1,0 +1,20 @@
+[Unit]
+Description=Ollama LLM Server
+After=network.target
+
+[Service]
+Type=simple
+User=jetson
+Group=jetson
+ExecStart=/usr/local/bin/ollama serve
+Restart=always
+RestartSec=3
+
+Environment="CUDA_VISIBLE_DEVICES=0"
+Environment="OLLAMA_NUM_GPU=99"
+Environment="OLLAMA_HOST=0.0.0.0:11434"
+Environment="HOME=/home/jetson"
+Environment="LD_LIBRARY_PATH=/usr/lib/aarch64-linux-gnu/nvidia:/usr/local/cuda/lib64"
+
+[Install]
+WantedBy=multi-user.target

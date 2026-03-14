@@ -1,0 +1,62 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "navigate_to",
+      "description": "Navigate the robot to a named warehouse location.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "location": {
+            "type": "string",
+            "description": "Destination name, e.g. 'Loading Bay', 'Isle 1', 'Charging Station'."
+          },
+          "use_apriltag": {
+            "type": "boolean",
+            "description": "Whether to use AprilTag for precision docking at the destination."
+          }
+        },
+        "required": ["location"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "stop_navigation",
+      "description": "Stop the robot immediately and cancel any active navigation goal.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "get_location",
+      "description": "Report the robot's current location in the warehouse.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "dock",
+      "description": "Precision dock using AprilTag at the robot's current location.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "apriltag_id": {
+            "type": "integer",
+            "description": "ID of the AprilTag to dock against."
+          }
+        },
+        "required": ["apriltag_id"]
+      }
+    }
+  }
+]

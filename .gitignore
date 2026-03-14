@@ -1,0 +1,18 @@
+# ROS2 build artifacts
+build/
+install/
+log/
+
+# Python virtual environments
+venv/
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# VS Code IntelliSense database (auto-generated)
+.vscode/browse.vc.db*
+
+# OS
+.DS_Store

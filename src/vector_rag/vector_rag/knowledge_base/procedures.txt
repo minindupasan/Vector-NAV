@@ -1,0 +1,48 @@
+VECTOR NAV — Operating Procedures
+
+Robot Startup Procedure
+1. Ensure the robot is fully charged (battery above 80% for full shift operation).
+2. Power on the Jetson Orin Nano by pressing the power button.
+3. Wait for the ROS2 system to initialize — approximately 30 seconds.
+4. The robot will announce "VECTOR NAV ready" via its speaker when fully initialized.
+5. Perform a test movement by saying "move forward slightly" to confirm motor response.
+
+Robot Shutdown Procedure
+1. Say "return to charging station" to send the robot home before shutdown.
+2. Wait until the robot confirms it has docked at the charging station.
+3. Say "shutdown" or press the physical power button for 3 seconds.
+4. The robot will save its current map and state before powering off.
+
+Navigation Commands
+- To navigate to a location, say: "Go to [location name]" or "Navigate to [location name]" or "Take me to [location name]"
+- To stop the robot, say: "Stop", "Halt", or "Cancel navigation"
+- To ask where the robot is, say: "Where are you?" or "What is your current location?"
+- To return home, say: "Go to charging station" or "Return to base"
+
+Docking Procedure
+1. The robot uses AprilTag markers for precision docking.
+2. When within 2 meters of a tagged location, the vision system activates.
+3. The robot aligns itself with the AprilTag and approaches slowly at 0.1 m/s.
+4. Docking is confirmed when the robot announces the location name.
+5. If docking fails, the robot retreats 0.5m and retries up to 3 times.
+
+Emergency Procedures
+- In case of emergency, say "Emergency stop" or press the red physical button on the robot.
+- The robot will stop all motion immediately and announce its current location.
+- To clear an emergency stop, say "Resume" after the area is safe.
+- If the robot is blocking an emergency exit, manually push it away — it has a manual override mode.
+- Contact the control room immediately if the robot malfunctions.
+
+Battery Management
+- The robot monitors its battery continuously.
+- Below 30%: The robot will warn the user verbally.
+- Below 20%: The robot will automatically return to the charging station.
+- Below 10%: The robot will stop in place and request manual intervention.
+- Always plug in the robot at the end of each shift.
+
+Obstacle Handling
+- The robot uses its RPLidar A1M8 to detect obstacles.
+- If an obstacle is detected, the robot will stop and announce "Obstacle detected".
+- The robot will attempt to re-plan its path automatically.
+- If re-planning fails 3 times, the robot will ask for help verbally.
+- Never place objects within 0.5m of the robot's planned path.

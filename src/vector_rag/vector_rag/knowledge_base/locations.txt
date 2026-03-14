@@ -1,0 +1,40 @@
+VECTOR NAV — Warehouse Location Directory
+
+Loading Bay
+The Loading Bay is located at the north end of the warehouse. It is used for receiving and dispatching goods.
+It is marked with AprilTag ID 1. Coordinates: x=1.5, y=0.5. The loading bay has a large roller door and a weighing scale.
+Staff must wear high-visibility vests in the loading bay. The area fits up to two forklifts simultaneously.
+
+Isle 1
+Isle 1 is the first storage aisle on the left side of the warehouse. It stores fast-moving consumer goods (FMCG).
+It is marked with AprilTag ID 2. Coordinates: x=3.0, y=1.2. Isle 1 contains shelving units A through F.
+Products here include packaged food, beverages, and household items. Isle 1 is restocked every Monday and Thursday.
+
+Isle 2
+Isle 2 is the second storage aisle, adjacent to Isle 1. It stores medium-weight components and spare parts.
+It is marked with AprilTag ID 3. Coordinates: x=3.0, y=2.8. Isle 2 contains shelving units G through L.
+Heavy lifting equipment is available at the end of Isle 2.
+
+Isle 3
+Isle 3 is the third storage aisle at the far right of the warehouse. It stores bulk and oversized items.
+It is marked with AprilTag ID 4. Coordinates: x=3.0, y=4.4. Isle 3 has reinforced flooring rated for 500kg loads.
+
+Charging Station
+The Charging Station is located near the main entrance at the south wall.
+It is marked with AprilTag ID 5. Coordinates: x=0.1, y=0.1. The robot should return here when battery is below 20%.
+The charging station has two docking ports. Average full charge time is 2 hours.
+
+Control Room
+The Control Room is the operations hub located at the east side of the warehouse.
+It is marked with AprilTag ID 6. Coordinates: x=5.0, y=2.5. The control room contains monitoring systems and the main computer terminal.
+Only authorized personnel are allowed in the control room.
+
+Break Room
+The Break Room is located at the south-east corner of the warehouse.
+It is marked with AprilTag ID 7. Coordinates: x=5.0, y=0.5. The break room has seating for 10 staff members.
+It contains a kitchen area, vending machines, and a first aid kit.
+
+Emergency Exit
+The Emergency Exit is located at the west wall of the warehouse.
+It is marked with AprilTag ID 8. Coordinates: x=0.0, y=3.0. The emergency exit leads to the muster point in the car park.
+This exit must remain clear at all times and must not be blocked by the robot or any goods.
