@@ -156,7 +156,13 @@ class LLMNode(Node):
 
     def _run_llm(self, text: str, context: str) -> None:
         try:
-            result = self._llm.chat(text, context=context)
+            def on_chunk(chunk):
+                self.get_logger().info(f'Chunk: "{chunk}"')
+                self._tts_pub.publish(String(data=chunk))
+
+            result = self._llm.chat_stream(
+                text, context=context, on_chunk=on_chunk
+            )
         except Exception as e:
             self.get_logger().error(f'LLM call failed: {e}')
             self._tts_pub.publish(String(data='Sorry, I could not process that request.'))
@@ -169,9 +175,7 @@ class LLMNode(Node):
             self.get_logger().info(f'Tool call: {out.name}  args={out.arguments_json}')
             self._tool_call_pub.publish(out)
         else:
-            answer = result['content']
-            self.get_logger().info(f'Answer: "{answer}"')
-            self._tts_pub.publish(String(data=answer))
+            self.get_logger().info(f'Complete: "{result["content"]}"')
 
     def _load_tools(self, tools_file: str) -> list:
         path = Path(tools_file) if tools_file else _find_config('tools.json')

@@ -8,6 +8,7 @@ No ROS2 dependencies — usable standalone for testing.
 """
 
 import json
+import re
 import ssl
 import struct
 import time
@@ -28,6 +29,7 @@ SYSTEM_PROMPT_TEMPLATE = (
     "2. ONLY use a tool call when the user explicitly asks you to PERFORM AN ACTION (navigate, stop, dock).\n"
     "3. When you need to call a tool, respond with ONLY this JSON and nothing else:\n"
     '   {{"tool_call": {{"name": "<tool_name>", "arguments": {{<args>}}}}}}\n\n'
+    "4. Do NOT use markdown formatting. No asterisks, no bullet points, no headers. Just plain spoken English.\n\n"
     "{tools_section}"
     "Be concise and clear. If you don't know something, say so."
 )
@@ -140,7 +142,25 @@ class LLMEngine:
 
         with self._lock:
             self._send_text(prompt)
-            response = self._collect_response()
+            response = self._collect_response_streaming(on_sentence=None)
+
+        return _parse_response(response)
+
+    def chat_stream(self, user_text: str, context: str = "", on_chunk=None):
+        """
+        Streaming chat — calls on_chunk(sentence) for each complete sentence
+        as it arrives. Returns the final parsed result dict.
+
+        Tool call responses are not streamed — returned as a single result.
+        """
+        if not self._ws:
+            self.connect()
+
+        prompt = _build_prompt(user_text, context)
+
+        with self._lock:
+            self._send_text(prompt)
+            response = self._collect_response_streaming(on_sentence=on_chunk)
 
         return _parse_response(response)
 
@@ -194,7 +214,6 @@ class LLMEngine:
             return None
 
         if isinstance(msg, str):
-            # NanoLLM shouldn't send text-mode, but handle gracefully
             return (_MSG_TEXT, msg)
 
         if len(msg) <= _HEADER_SIZE:
@@ -228,12 +247,13 @@ class LLMEngine:
                     return payload
         return None
 
-    def _collect_response(self) -> str:
+    def _collect_response_streaming(self, on_sentence=None) -> str:
         """
-        After sending a prompt, collect streaming chat_history updates
-        until the response stabilizes (no new tokens for a short window).
+        Collect streaming chat_history updates. When on_sentence is provided,
+        emit each complete sentence (ending in . ! ? or newline) for TTS.
         """
-        last_response = ""
+        last_raw = ""
+        emitted_len = 0
         stable_count = 0
         deadline = time.time() + self.response_timeout
 
@@ -242,8 +262,7 @@ class LLMEngine:
 
             if result is None:
                 stable_count += 1
-                # Response is stable if we haven't received new tokens for 2 cycles
-                if last_response and stable_count >= 2:
+                if last_raw and stable_count >= 2:
                     break
                 continue
 
@@ -252,17 +271,34 @@ class LLMEngine:
             if msg_type == _MSG_JSON and isinstance(payload, dict):
                 if 'chat_history' in payload:
                     history = payload['chat_history']
-                    # Find the last assistant message
                     for entry in reversed(history):
                         if entry.get('role') == 'bot':
                             text = entry.get('text', '')
-                            if text and text != last_response:
-                                last_response = text
+                            if text and text != last_raw:
+                                last_raw = text
                                 stable_count = 0
+
+                                if on_sentence and not _looks_like_tool_call(text):
+                                    cleaned = _clean_for_tts(text)
+                                    new_text = cleaned[emitted_len:]
+                                    # Find last sentence boundary in new text
+                                    last_boundary = _find_last_sentence_boundary(new_text)
+                                    if last_boundary > 0:
+                                        to_emit = new_text[:last_boundary].strip()
+                                        if to_emit:
+                                            on_sentence(to_emit)
+                                        emitted_len += last_boundary
                             break
 
-        # Clean up HTML artifacts from NanoLLM's web formatting
-        return _clean_html(last_response)
+        full_response = _clean_for_tts(last_raw)
+
+        # Flush remaining text
+        if on_sentence and not _looks_like_tool_call(last_raw):
+            remaining = full_response[emitted_len:].strip()
+            if remaining:
+                on_sentence(remaining)
+
+        return full_response
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────
@@ -273,15 +309,48 @@ def _build_prompt(user_text: str, context: str) -> str:
     return user_text
 
 
-def _clean_html(text: str) -> str:
-    """Remove HTML tags that NanoLLM adds for its web UI."""
-    import re
+def _clean_for_tts(text: str) -> str:
+    """
+    Clean NanoLLM HTML output into plain spoken text suitable for TTS.
+    Handles HTML entities, tags, and markdown artifacts.
+    """
+    # First, strip HTML tags but join adjacent text (no extra spaces)
+    # NanoLLM wraps each token in <span> tags, so removing tags joins tokens
     text = text.replace('<br/>', '\n')
     text = text.replace('&amp;', '&')
     text = text.replace('&lt;', '<')
     text = text.replace('&gt;', '>')
+    # Remove all HTML tags without adding spaces (tokens are contiguous)
     text = re.sub(r'<[^>]+>', '', text)
+    # Remove markdown bold/italic markers
+    text = re.sub(r'\*{1,3}', '', text)
+    # Remove markdown bullet points
+    text = re.sub(r'^\s*[-•]\s*', '', text, flags=re.MULTILINE)
+    # Remove markdown headers
+    text = re.sub(r'^#{1,6}\s*', '', text, flags=re.MULTILINE)
+    # Collapse multiple spaces
+    text = re.sub(r' {2,}', ' ', text)
+    # Collapse multiple newlines
+    text = re.sub(r'\n{2,}', '\n', text)
     return text.strip()
+
+
+# Sentence boundaries: . ! ? followed by space/newline, or newline itself
+_SENTENCE_BOUNDARY_RE = re.compile(r'(?<=[.!?])\s+|\n')
+
+
+def _find_last_sentence_boundary(text: str) -> int:
+    """Find the position after the last sentence boundary in text. Returns 0 if none."""
+    last_pos = 0
+    for m in _SENTENCE_BOUNDARY_RE.finditer(text):
+        last_pos = m.end()
+    return last_pos
+
+
+def _looks_like_tool_call(text: str) -> bool:
+    """Check if the response looks like a JSON tool call (don't stream those)."""
+    cleaned = _clean_for_tts(text).strip()
+    return '{"tool_call"' in cleaned
 
 
 def _parse_response(response: str) -> dict:
@@ -289,14 +358,9 @@ def _parse_response(response: str) -> dict:
     Parse the LLM response text. If it contains a JSON tool_call block,
     extract it. Otherwise return as plain text.
     """
-    # Try to find a JSON tool_call in the response
     try:
-        # Look for JSON block with tool_call
         start = response.find('{"tool_call"')
-        if start == -1:
-            start = response.find('{"tool_call"')
         if start >= 0:
-            # Find matching closing brace
             depth = 0
             for i in range(start, len(response)):
                 if response[i] == '{':
