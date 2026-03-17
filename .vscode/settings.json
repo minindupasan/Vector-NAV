@@ -7,5 +7,42 @@
   "python.analysis.extraPaths": [
     "/opt/ros/humble/lib/python3.10/site-packages",
     "/opt/ros/humble/local/lib/python3.10/dist-packages"
-  ]
+  ],
+
+  // ── Python environment ────────────────────────────────────────────────────
+  "python.terminal.activateEnvironment": false,
+
+  // ── Disable all heavy background features ────────────────────────────────
+  "C_Cpp.intelliSenseEngine": "disabled",
+  "C_Cpp.autocomplete": "disabled",
+  "C_Cpp.errorSquiggles": "disabled",
+  "C_Cpp.formatting": "disabled",
+
+  "python.analysis.enabled": false,
+  "pylance.linting.enabled": false,
+
+  "editor.formatOnSave": false,
+  "editor.formatOnType": false,
+  "editor.formatOnPaste": false,
+
+  "extensions.autoUpdate": false,
+  "extensions.autoCheckUpdates": false,
+
+  "search.followSymlinks": false,
+  "files.watcherExclude": {
+    "**/build/**": true,
+    "**/install/**": true,
+    "**/log/**": true,
+    "**/.venv/**": true,
+    "**/node_modules/**": true,
+    "**/__pycache__/**": true
+  },
+  "files.exclude": {
+    "**/build": true,
+    "**/install": true,
+    "**/log": true,
+    "**/.venv": true,
+    "**/__pycache__": true
+  },
+  "cmake.sourceDirectory": "/home/jetson/vector_nav/src/vector_interfaces"
 }
