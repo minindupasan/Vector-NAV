@@ -1,14 +1,12 @@
 """
-VECTOR NAV — Chatbot Launch File
-Starts the RAG retrieval node and the LLM communication node.
+VECTOR NAV — Full Voice Pipeline Launch File
+Starts STT, RAG, LLM, and TTS nodes.
 
-The RAG embedding model is loaded ONCE inside rag_node.
-llm_node delegates retrieval to rag_node via /rag/query → /rag/context,
-avoiding a double load of the 90 MB sentence-transformers model.
+Pipeline: Mic → STT → LLM (+ RAG) → TTS → Speaker
 
 Usage:
   ros2 launch vector_llm vector_chatbot.launch.py
-  ros2 launch vector_llm vector_chatbot.launch.py model:=llama3.2:3b
+  ros2 launch vector_llm vector_chatbot.launch.py ws_url:=wss://localhost:49000 rag_top_k:=5
 """
 
 from launch import LaunchDescription
@@ -21,11 +19,26 @@ def generate_launch_description():
     return LaunchDescription([
 
         # ── Arguments ─────────────────────────────────────────────────────────
-        DeclareLaunchArgument('ws_url',     default_value='wss://localhost:49000'),
-        DeclareLaunchArgument('rag_top_k',  default_value='3'),
-        DeclareLaunchArgument('tools_file', default_value=''),
+        DeclareLaunchArgument('ws_url',      default_value='wss://localhost:49000'),
+        DeclareLaunchArgument('rag_top_k',   default_value='3'),
+        DeclareLaunchArgument('tools_file',  default_value=''),
+        DeclareLaunchArgument('tts_model',   default_value='/home/jetson/vector_nav/models/tts/en_US-lessac-high.onnx'),
+        DeclareLaunchArgument('tts_device',  default_value=''),
+        DeclareLaunchArgument('tts_volume',  default_value='1.0'),
+        DeclareLaunchArgument('stt_model',   default_value='base.en'),
 
-        LogInfo(msg='Starting VECTOR NAV — RAG + LLM nodes (NanoLLM)'),
+        LogInfo(msg='Starting VECTOR NAV — STT + RAG + LLM + TTS nodes'),
+
+        # ── STT node — faster-whisper (CPU, tiny.en int8) ────────────────────
+        Node(
+            package='vector_stt',
+            executable='stt_node',
+            name='stt_node',
+            output='screen',
+            parameters=[{
+                'model_size': LaunchConfiguration('stt_model'),
+            }],
+        ),
 
         # ── RAG node — owns the embedding model ───────────────────────────────
         Node(
@@ -50,6 +63,19 @@ def generate_launch_description():
                 'use_rag':    False,   # rag_node handles retrieval
                 'rag_top_k':  LaunchConfiguration('rag_top_k'),
                 'tools_file': LaunchConfiguration('tools_file'),
+            }],
+        ),
+
+        # ── TTS node — Piper TTS (CPU, ~160ms latency) ───────────────────────
+        Node(
+            package='vector_tts',
+            executable='tts_node',
+            name='tts_node',
+            output='screen',
+            parameters=[{
+                'model_path': LaunchConfiguration('tts_model'),
+                'device':     LaunchConfiguration('tts_device'),
+                'volume':     LaunchConfiguration('tts_volume'),
             }],
         ),
 

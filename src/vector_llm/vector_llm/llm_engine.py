@@ -21,17 +21,21 @@ from websockets.exceptions import ConnectionClosed
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT_TEMPLATE = (
-    "You are VECTOR NAV, an intelligent warehouse robot assistant. "
-    "You help operators navigate the warehouse and answer questions about "
-    "robot operations, locations, and procedures.\n\n"
+    "You are VECTOR NAV, a friendly and intelligent warehouse robot assistant. "
+    "You help operators navigate the warehouse, answer questions about "
+    "robot operations, locations, procedures, and have natural conversations.\n\n"
     "IMPORTANT RULES:\n"
-    "1. For knowledge questions (what, where, how, why), answer directly in plain text using the provided context.\n"
-    "2. ONLY use a tool call when the user explicitly asks you to PERFORM AN ACTION (navigate, stop, dock).\n"
-    "3. When you need to call a tool, respond with ONLY this JSON and nothing else:\n"
+    "1. Keep responses SHORT — 1 to 3 sentences maximum. You are a robot speaking aloud, not writing an essay.\n"
+    "2. Answer conversational questions naturally. You can chat, introduce yourself, explain your capabilities, "
+    "and be helpful. Only decline if asked to do something completely outside your ability like writing code or essays.\n"
+    "3. When given context information, use it to answer accurately. If no context is relevant, use your own knowledge.\n"
+    "4. ONLY use a tool call when the user explicitly asks you to PERFORM AN ACTION (navigate, stop, dock).\n"
+    "5. When you need to call a tool, respond with ONLY this JSON and nothing else:\n"
     '   {{"tool_call": {{"name": "<tool_name>", "arguments": {{<args>}}}}}}\n\n'
-    "4. Do NOT use markdown formatting. No asterisks, no bullet points, no headers. Just plain spoken English.\n\n"
+    "6. Do NOT use markdown formatting. No asterisks, no bullet points, no headers. Just plain spoken English.\n"
+    "7. Never repeat yourself. Say it once and stop.\n\n"
     "{tools_section}"
-    "Be concise and clear. If you don't know something, say so."
+    "Be concise, friendly, and clear. If you don't know something, say so."
 )
 
 
@@ -152,6 +156,7 @@ class LLMEngine:
         as it arrives. Returns the final parsed result dict.
 
         Tool call responses are not streamed — returned as a single result.
+        Resets chat history after each query to prevent memory growth.
         """
         if not self._ws:
             self.connect()
@@ -161,6 +166,8 @@ class LLMEngine:
         with self._lock:
             self._send_text(prompt)
             response = self._collect_response_streaming(on_sentence=on_chunk)
+            # Reset history after each exchange to keep memory stable
+            self._send_json({'chat_history_reset': True})
 
         return _parse_response(response)
 
@@ -314,6 +321,11 @@ def _clean_for_tts(text: str) -> str:
     Clean NanoLLM HTML output into plain spoken text suitable for TTS.
     Handles HTML entities, tags, and markdown artifacts.
     """
+    # Strip Llama special tokens that leak through
+    text = re.sub(r'<\|eot_id\|>', '', text)
+    text = re.sub(r'<\|end_of_text\|>', '', text)
+    text = re.sub(r'<\|begin_of_text\|>', '', text)
+    text = re.sub(r'<\|start_header_id\|>.*?<\|end_header_id\|>', '', text)
     # First, strip HTML tags but join adjacent text (no extra spaces)
     # NanoLLM wraps each token in <span> tags, so removing tags joins tokens
     text = text.replace('<br/>', '\n')
@@ -337,13 +349,25 @@ def _clean_for_tts(text: str) -> str:
 
 # Sentence boundaries: . ! ? followed by space/newline, or newline itself
 _SENTENCE_BOUNDARY_RE = re.compile(r'(?<=[.!?])\s+|\n')
+# Clause boundaries: comma followed by space (fallback for long run-on sentences)
+_CLAUSE_BOUNDARY_RE = re.compile(r',\s+')
+
+# If no sentence boundary found and text is longer than this, split on commas
+_CLAUSE_SPLIT_THRESHOLD = 80
 
 
 def _find_last_sentence_boundary(text: str) -> int:
-    """Find the position after the last sentence boundary in text. Returns 0 if none."""
+    """Find the position after the last sentence boundary in text.
+    Falls back to comma-splitting for long run-on sentences."""
     last_pos = 0
     for m in _SENTENCE_BOUNDARY_RE.finditer(text):
         last_pos = m.end()
+    if last_pos > 0:
+        return last_pos
+    # No sentence boundary — split on commas if text is long enough
+    if len(text) >= _CLAUSE_SPLIT_THRESHOLD:
+        for m in _CLAUSE_BOUNDARY_RE.finditer(text):
+            last_pos = m.end()
     return last_pos
 
 

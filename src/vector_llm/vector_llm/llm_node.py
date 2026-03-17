@@ -30,6 +30,7 @@ Parameters
 """
 
 import json
+import time
 import threading
 from pathlib import Path
 
@@ -107,11 +108,14 @@ class LLMNode(Node):
         text = msg.text.strip()
         if not text:
             return
+        t0 = time.monotonic()
         self.get_logger().info(
-            f'Input: "{text}"  confidence={msg.confidence:.2f}  lang={msg.language or "?"}'
+            f'[T+0ms] Input: "{text}"  confidence={msg.confidence:.2f}  lang={msg.language or "?"}'
         )
         context = self._get_context(text)
-        self._run_llm(text, context)
+        t_rag = time.monotonic()
+        self.get_logger().info(f'[T+{(t_rag-t0)*1000:.0f}ms] RAG context retrieved')
+        self._run_llm(text, context, t0)
 
     def _on_rag_context(self, msg: RagContext) -> None:
         self._rag_context = msg.context
@@ -154,19 +158,31 @@ class LLMNode(Node):
 
             return self._rag_context
 
-    def _run_llm(self, text: str, context: str) -> None:
+    def _run_llm(self, text: str, context: str, t0: float) -> None:
         try:
-            def on_chunk(chunk):
-                self.get_logger().info(f'Chunk: "{chunk}"')
-                self._tts_pub.publish(String(data=chunk))
+            chunk_count = 0
 
+            def on_chunk(sentence):
+                nonlocal chunk_count
+                chunk_count += 1
+                self.get_logger().info(
+                    f'[T+{(time.monotonic()-t0)*1000:.0f}ms] TTS chunk {chunk_count}: "{sentence}"'
+                )
+                self._tts_pub.publish(String(data=sentence))
+
+            self.get_logger().info(f'[T+{(time.monotonic()-t0)*1000:.0f}ms] LLM inference start')
             result = self._llm.chat_stream(
                 text, context=context, on_chunk=on_chunk
             )
+            self.get_logger().info(f'[T+{(time.monotonic()-t0)*1000:.0f}ms] LLM inference complete')
         except Exception as e:
             self.get_logger().error(f'LLM call failed: {e}')
             self._tts_pub.publish(String(data='Sorry, I could not process that request.'))
+            self._tts_pub.publish(String(data='[end]'))
             return
+
+        # Signal TTS that this response is done (close the audio stream)
+        self._tts_pub.publish(String(data='[end]'))
 
         if result['type'] == 'tool_call':
             out = LLMToolCall()
@@ -175,7 +191,7 @@ class LLMNode(Node):
             self.get_logger().info(f'Tool call: {out.name}  args={out.arguments_json}')
             self._tool_call_pub.publish(out)
         else:
-            self.get_logger().info(f'Complete: "{result["content"]}"')
+            self.get_logger().info(f'[T+{(time.monotonic()-t0)*1000:.0f}ms] Complete ({chunk_count} chunks)')
 
     def _load_tools(self, tools_file: str) -> list:
         path = Path(tools_file) if tools_file else _find_config('tools.json')
