@@ -81,14 +81,17 @@ class LLMEngine:
         ws_url: str = "wss://localhost:49000",
         tools: list | None = None,
         response_timeout: float = 30.0,
+        max_history_turns: int = 3,
     ):
         self.ws_url = ws_url
         self.tools = tools or []
         self.response_timeout = response_timeout
+        self.max_history_turns = max_history_turns
         self._ws = None
         self._msg_id = 0
         self._lock = threading.Lock()
         self._system_prompt_sent = False
+        self._turn_count = 0
 
     # ── Connection management ─────────────────────────────────────────────
 
@@ -156,7 +159,8 @@ class LLMEngine:
         as it arrives. Returns the final parsed result dict.
 
         Tool call responses are not streamed — returned as a single result.
-        Resets chat history after each query to prevent memory growth.
+        Keeps last max_history_turns exchanges for conversational context,
+        then resets to prevent unbounded memory growth.
         """
         if not self._ws:
             self.connect()
@@ -166,8 +170,12 @@ class LLMEngine:
         with self._lock:
             self._send_text(prompt)
             response = self._collect_response_streaming(on_sentence=on_chunk)
-            # Reset history after each exchange to keep memory stable
-            self._send_json({'chat_history_reset': True})
+
+            # Keep short conversation memory, reset when it gets too long
+            self._turn_count += 1
+            if self._turn_count >= self.max_history_turns:
+                self._send_json({'chat_history_reset': True})
+                self._turn_count = 0
 
         return _parse_response(response)
 
@@ -312,7 +320,11 @@ class LLMEngine:
 
 def _build_prompt(user_text: str, context: str) -> str:
     if context and context.strip():
-        return f"Context:\n{context}\n\nUser: {user_text}"
+        # Truncate context to ~500 chars to keep prompt short for faster inference
+        ctx = context.strip()
+        if len(ctx) > 500:
+            ctx = ctx[:500].rsplit(' ', 1)[0] + '...'
+        return f"Context:\n{ctx}\n\nUser: {user_text}"
     return user_text
 
 

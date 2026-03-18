@@ -38,7 +38,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
-from std_msgs.msg import String
+from std_msgs.msg import String, Bool
 
 from vector_interfaces.msg import SttResult, LLMToolCall, RagQuery, RagContext
 from vector_llm.llm_engine import LLMEngine
@@ -83,7 +83,10 @@ class LLMNode(Node):
         self._rag_event   = threading.Event()
         self._rag_context = ''
 
-        # Reentrant group lets /rag/context callback fire while _on_stt is blocking
+        # Interrupt flag — set by barge-in, stops on_chunk from publishing stale text
+        self._interrupted = threading.Event()
+
+        # Reentrant group lets /rag/context and /llm/interrupt callbacks fire while _on_stt is blocking
         cb = ReentrantCallbackGroup()
 
         # ── Publishers ────────────────────────────────────────────────────────
@@ -94,11 +97,12 @@ class LLMNode(Node):
         # ── Subscribers ───────────────────────────────────────────────────────
         self.create_subscription(SttResult,  '/stt/text',    self._on_stt,         10, callback_group=cb)
         self.create_subscription(RagContext, '/rag/context', self._on_rag_context, 10, callback_group=cb)
+        self.create_subscription(Bool,       '/llm/interrupt', self._on_interrupt,  10, callback_group=cb)
 
         mode = 'internal RAG' if self._use_internal_rag else 'delegated to rag_node'
         self.get_logger().info(
             f'LLMNode started  RAG={mode}\n'
-            '  Subscribes : /stt/text, /rag/context\n'
+            '  Subscribes : /stt/text, /rag/context, /llm/interrupt\n'
             '  Publishes  : /tts/input, /llm/tool_call, /rag/query'
         )
 
@@ -177,8 +181,10 @@ class LLMNode(Node):
             self.get_logger().info(f'[T+{(time.monotonic()-t0)*1000:.0f}ms] LLM inference complete')
         except Exception as e:
             self.get_logger().error(f'LLM call failed: {e}')
+            # TTS has pre-cached "Sorry, I could not process that request."
             self._tts_pub.publish(String(data='Sorry, I could not process that request.'))
             self._tts_pub.publish(String(data='[end]'))
+
             return
 
         # Signal TTS that this response is done (close the audio stream)

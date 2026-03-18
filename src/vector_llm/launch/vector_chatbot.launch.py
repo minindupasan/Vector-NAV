@@ -20,9 +20,9 @@ def generate_launch_description():
 
         # ── Arguments ─────────────────────────────────────────────────────────
         DeclareLaunchArgument('ws_url',      default_value='wss://localhost:49000'),
-        DeclareLaunchArgument('rag_top_k',   default_value='3'),
+        DeclareLaunchArgument('rag_top_k',   default_value='2'),
         DeclareLaunchArgument('tools_file',  default_value=''),
-        DeclareLaunchArgument('tts_model',   default_value='/home/jetson/vector_nav/models/tts/en_US-lessac-high.onnx'),
+        DeclareLaunchArgument('tts_model',   default_value='/home/jetson/vector_nav/models/tts/en_US-ryan-high.onnx'),
         DeclareLaunchArgument('tts_device',  default_value=''),
         DeclareLaunchArgument('tts_volume',  default_value='1.0'),
         DeclareLaunchArgument('stt_model',   default_value='base.en'),

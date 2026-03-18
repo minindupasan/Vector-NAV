@@ -43,7 +43,7 @@ jetson-containers run \
   --env HUGGINGFACE_TOKEN=$HUGGINGFACE_TOKEN \
   -v "$SCRIPT_DIR/fix_tied_embeddings.py:/tmp/fix_tied_embeddings.py:ro" \
   dustynv/nano_llm:r36.4.0 \
-  bash -c "python3 /tmp/fix_tied_embeddings.py meta-llama/Llama-3.2-3B-Instruct && python3 -m nano_llm.agents.web_chat --model meta-llama/Llama-3.2-3B-Instruct --api mlc --quantization q4f16_ft --max-context-len 2048"
+  bash -c "python3 /tmp/fix_tied_embeddings.py meta-llama/Llama-3.2-3B-Instruct && python3 -m nano_llm.agents.web_chat --model meta-llama/Llama-3.2-3B-Instruct --api mlc --quantization q4f16_ft --max-context-len 1024"
 
 # 4. Success message and logs
 echo "[4/4] Server is starting in the background."
