@@ -12,15 +12,18 @@
     <plugin filename="libignition-gazebo-contact-system.so"
             name="ignition::gazebo::systems::Contact"/>
 
-    <!-- Sensor system — required for gpu_lidar (LiDAR) -->
+    <!-- IMU system — required for imu sensors (no rendering needed) -->
+    <plugin filename="libignition-gazebo-imu-system.so"
+            name="ignition::gazebo::systems::Imu"/>
+
+    <!-- Sensors system (gpu_lidar/cameras) disabled for now — ogre2 EGL
+         rendering on Jetson stalls the physics loop.  Uncomment once
+         NVIDIA EGL headless rendering is confirmed working:
     <plugin filename="libignition-gazebo-sensors-system.so"
             name="ignition::gazebo::systems::Sensors">
       <render_engine>ogre2</render_engine>
     </plugin>
-
-    <!-- IMU system — required for imu sensors -->
-    <plugin filename="libignition-gazebo-imu-system.so"
-            name="ignition::gazebo::systems::Imu"/>
+    -->
 
     <!-- Increase step size for Jetson performance (default 0.001 is too heavy) -->
     <physics name="default_physics" type="ode">
