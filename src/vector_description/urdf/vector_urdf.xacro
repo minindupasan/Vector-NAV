@@ -362,4 +362,22 @@
     <axis xyz="0.0 -1.0 0.0"/>
   </joint>
 
+  <!-- ============================================================ -->
+  <!-- IMU link — massless, centred on base (TurtleBot3 pattern)   -->
+  <!-- ============================================================ -->
+  <link name="imu_link">
+    <inertial>
+      <mass value="0.001"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
+    </inertial>
+  </link>
+
+  <!-- base_link → imu_link: mounted at robot centre, 20 mm above base plane -->
+  <joint name="imu_joint" type="fixed">
+    <origin xyz="0.0 0.0 0.02" rpy="0 0 0"/>
+    <parent link="base_link"/>
+    <child link="imu_link"/>
+  </joint>
+
 </robot>

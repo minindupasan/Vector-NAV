@@ -1,4 +1,11 @@
-"""Ignition Fortress (gz) launch for VECTOR NAV with ros2_control + diff_drive_controller."""
+"""Combined Gazebo + RViz2 launcher for VECTOR NAV.
+
+Starts Ignition Fortress simulation and RViz2 together.
+
+Usage:
+  ros2 launch vector_description sim.launch.py
+  ros2 launch vector_description sim.launch.py x_pose:=1.0 y_pose:=2.0
+"""
 
 import os
 from ament_index_python.packages import get_package_share_directory, get_package_prefix
@@ -29,8 +36,9 @@ def generate_launch_description():
            if 'IGN_GAZEBO_RESOURCE_PATH' in os.environ else '')
     )
 
-    xacro_file = os.path.join(pkg, 'urdf', 'vector_urdf.xacro')
+    xacro_file  = os.path.join(pkg, 'urdf', 'vector_urdf.xacro')
     world_file  = os.path.join(pkg, 'worlds', 'vector_world.sdf')
+    rviz_config = os.path.join(pkg, 'rviz', 'vector.rviz')
 
     use_sim_time = LaunchConfiguration('use_sim_time', default='true')
     x_pose = LaunchConfiguration('x_pose', default='0.0')
@@ -38,7 +46,7 @@ def generate_launch_description():
 
     robot_description = ParameterValue(Command(['xacro ', xacro_file]), value_type=str)
 
-    # ── robot_state_publisher (starts FIRST) ─────────────────────────────────
+    # ── robot_state_publisher (starts FIRST so gz_ros2_control can reach it) ──
     robot_state_publisher = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
@@ -50,7 +58,7 @@ def generate_launch_description():
         }],
     )
 
-    # ── Ignition Gazebo (delayed 2s so RSP service is available) ─────────────
+    # ── Ignition Gazebo (delayed 2s to let RSP advertise its service) ─────────
     gz_sim = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(ros_gz_sim_pkg, 'launch', 'gz_sim.launch.py')
@@ -58,7 +66,7 @@ def generate_launch_description():
         launch_arguments={'gz_args': '-r ' + world_file}.items(),
     )
 
-    # ── Spawn robot ──────────────────────────────────────────────────────────
+    # ── Spawn robot (delayed 5s — Gazebo needs time to start on Jetson) ───────
     spawn_entity = Node(
         package='ros_gz_sim',
         executable='create',
@@ -103,6 +111,16 @@ def generate_launch_description():
         ],
     )
 
+    # ── RViz2 ─────────────────────────────────────────────────────────────────
+    rviz = Node(
+        package='rviz2',
+        executable='rviz2',
+        name='rviz2',
+        output='screen',
+        arguments=['-d', rviz_config],
+        parameters=[{'use_sim_time': use_sim_time}],
+    )
+
     return LaunchDescription([
         DeclareLaunchArgument('use_sim_time', default_value='true'),
         DeclareLaunchArgument('x_pose', default_value='0.0'),
@@ -111,14 +129,15 @@ def generate_launch_description():
         # 1. RSP starts immediately
         robot_state_publisher,
 
-        # 2. Gazebo starts after 2s
+        # 2. Gazebo starts after 2s (RSP is ready)
         TimerAction(period=2.0, actions=[gz_sim]),
 
-        # 3. Spawn robot after Gazebo world is loaded
+        # 3. Spawn robot after Gazebo world is loaded (5s)
         TimerAction(period=5.0, actions=[spawn_entity]),
 
-        # 4. Sensor bridge
+        # 4. Sensor bridge + RViz
         sensor_bridge,
+        rviz,
 
         # 5. Controller spawners (wait for controller_manager automatically)
         TimerAction(period=8.0, actions=[spawn_jsb]),
