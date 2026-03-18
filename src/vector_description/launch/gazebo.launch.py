@@ -23,11 +23,11 @@ def generate_launch_description():
     os.environ.setdefault('__GLX_VENDOR_LIBRARY_NAME', 'nvidia')
 
     pkg_share_parent = os.path.join(get_package_prefix('vector_description'), 'share')
-    os.environ['IGN_GAZEBO_RESOURCE_PATH'] = (
-        pkg_share_parent
-        + (':' + os.environ['IGN_GAZEBO_RESOURCE_PATH']
-           if 'IGN_GAZEBO_RESOURCE_PATH' in os.environ else '')
-    )
+    models_dir = os.path.join(pkg, 'models')
+    resource_paths = os.pathsep.join([pkg_share_parent, models_dir])
+    if 'IGN_GAZEBO_RESOURCE_PATH' in os.environ:
+        resource_paths += os.pathsep + os.environ['IGN_GAZEBO_RESOURCE_PATH']
+    os.environ['IGN_GAZEBO_RESOURCE_PATH'] = resource_paths
 
     xacro_file = os.path.join(pkg, 'urdf', 'vector_urdf.xacro')
     world_file  = os.path.join(pkg, 'worlds', 'vector_world.sdf')

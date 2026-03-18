@@ -67,9 +67,9 @@
       <material name="silver"/>
     </visual>
     <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <origin xyz="0 0 0.015" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://vector_description/meshes/base_link.stl" scale="0.001 0.001 0.001"/>
+        <box size="0.250 0.175 0.030"/>
       </geometry>
     </collision>
   </link>
@@ -88,9 +88,9 @@
       <material name="silver"/>
     </visual>
     <collision>
-      <origin xyz="0.063875 0.079 -0.0" rpy="0 0 0"/>
+      <origin xyz="-0.008 0.017 -0.019" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://vector_description/meshes/motor_rr.stl" scale="0.001 0.001 0.001"/>
+        <box size="0.029 0.070 0.033"/>
       </geometry>
     </collision>
   </link>
@@ -109,9 +109,9 @@
       <material name="silver"/>
     </visual>
     <collision>
-      <origin xyz="0.071875 0.089 0.019875" rpy="0 0 0"/>
+      <origin xyz="0.0 -0.018 0.0" rpy="1.5708 0 0"/>
       <geometry>
-        <mesh filename="package://vector_description/meshes/wheel_rr.stl" scale="0.001 0.001 0.001"/>
+        <cylinder radius="0.034" length="0.032"/>
       </geometry>
     </collision>
   </link>
@@ -130,9 +130,9 @@
       <material name="silver"/>
     </visual>
     <collision>
-      <origin xyz="-0.05 0.02 -0.025" rpy="0 0 0"/>
+      <origin xyz="0.024 0.020 0.035" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://vector_description/meshes/lidar_base.stl" scale="0.001 0.001 0.001"/>
+        <box size="0.098 0.072 0.051"/>
       </geometry>
     </collision>
   </link>
@@ -151,9 +151,9 @@
       <material name="silver"/>
     </visual>
     <collision>
-      <origin xyz="-0.092 -0.0 -0.0732" rpy="0 0 0"/>
+      <origin xyz="0.002 0.0 0.007" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://vector_description/meshes/lidar_link.stl" scale="0.001 0.001 0.001"/>
+        <cylinder radius="0.035" length="0.030"/>
       </geometry>
     </collision>
   </link>
@@ -172,9 +172,9 @@
       <material name="silver"/>
     </visual>
     <collision>
-      <origin xyz="-0.079875 -0.079 -0.0" rpy="0 0 0"/>
+      <origin xyz="-0.008 -0.017 -0.019" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://vector_description/meshes/motor_fl.stl" scale="0.001 0.001 0.001"/>
+        <box size="0.029 0.070 0.033"/>
       </geometry>
     </collision>
   </link>
@@ -193,9 +193,9 @@
       <material name="silver"/>
     </visual>
     <collision>
-      <origin xyz="0.063825 -0.064 -0.0" rpy="0 0 0"/>
+      <origin xyz="-0.008 -0.002 -0.019" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://vector_description/meshes/motor_rl.stl" scale="0.001 0.001 0.001"/>
+        <box size="0.029 0.070 0.033"/>
       </geometry>
     </collision>
   </link>
@@ -214,9 +214,9 @@
       <material name="silver"/>
     </visual>
     <collision>
-      <origin xyz="-0.079825 0.064 -0.0" rpy="0 0 0"/>
+      <origin xyz="-0.008 0.002 -0.019" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://vector_description/meshes/motor_fr.stl" scale="0.001 0.001 0.001"/>
+        <box size="0.029 0.070 0.033"/>
       </geometry>
     </collision>
   </link>
@@ -235,9 +235,9 @@
       <material name="silver"/>
     </visual>
     <collision>
-      <origin xyz="-0.071875 -0.089 0.019875" rpy="0 0 0"/>
+      <origin xyz="0.0 0.018 0.0" rpy="1.5708 0 0"/>
       <geometry>
-        <mesh filename="package://vector_description/meshes/wheel_fl.stl" scale="0.001 0.001 0.001"/>
+        <cylinder radius="0.034" length="0.032"/>
       </geometry>
     </collision>
   </link>
@@ -256,9 +256,9 @@
       <material name="silver"/>
     </visual>
     <collision>
-      <origin xyz="0.071776 -0.089 0.019875" rpy="0 0 0"/>
+      <origin xyz="0.0 0.018 0.0" rpy="1.5708 0 0"/>
       <geometry>
-        <mesh filename="package://vector_description/meshes/wheel_rl.stl" scale="0.001 0.001 0.001"/>
+        <cylinder radius="0.034" length="0.032"/>
       </geometry>
     </collision>
   </link>
@@ -277,9 +277,9 @@
       <material name="silver"/>
     </visual>
     <collision>
-      <origin xyz="-0.071776 0.089 0.019875" rpy="0 0 0"/>
+      <origin xyz="0.0 -0.018 0.0" rpy="1.5708 0 0"/>
       <geometry>
-        <mesh filename="package://vector_description/meshes/wheel_fr.stl" scale="0.001 0.001 0.001"/>
+        <cylinder radius="0.034" length="0.032"/>
       </geometry>
     </collision>
   </link>

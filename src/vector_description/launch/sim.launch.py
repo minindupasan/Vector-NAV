@@ -1,6 +1,7 @@
-"""Combined Gazebo + RViz2 launcher for VECTOR NAV.
+"""Headless Gazebo launcher for VECTOR NAV (Jetson).
 
-Starts Ignition Fortress simulation and RViz2 together.
+Runs Ignition Fortress in server-only mode on the Jetson.
+Visualization (RViz2 / Gazebo GUI) runs on a laptop over the network.
 
 Usage:
   ros2 launch vector_description sim.launch.py
@@ -25,21 +26,22 @@ def generate_launch_description():
     pkg = get_package_share_directory('vector_description')
     ros_gz_sim_pkg = get_package_share_directory('ros_gz_sim')
 
+    # ── Use CycloneDDS (handles large URDF messages without buffer overflow) ─
+    os.environ['RMW_IMPLEMENTATION'] = 'rmw_cyclonedds_cpp'
+
     # ── Environment for Jetson NVIDIA EGL + Ignition mesh resolution ─────────
     os.environ.setdefault('__EGL_VENDOR_LIBRARY_DIRS', '/usr/share/glvnd/egl_vendor.d/')
     os.environ.setdefault('__GLX_VENDOR_LIBRARY_NAME', 'nvidia')
 
     pkg_share_parent = os.path.join(get_package_prefix('vector_description'), 'share')
-    os.environ['IGN_GAZEBO_RESOURCE_PATH'] = (
-        pkg_share_parent
-        + (':' + os.environ['IGN_GAZEBO_RESOURCE_PATH']
-           if 'IGN_GAZEBO_RESOURCE_PATH' in os.environ else '')
-    )
+    models_dir = os.path.join(pkg, 'models')
+    resource_paths = os.pathsep.join([pkg_share_parent, models_dir])
+    if 'IGN_GAZEBO_RESOURCE_PATH' in os.environ:
+        resource_paths += os.pathsep + os.environ['IGN_GAZEBO_RESOURCE_PATH']
+    os.environ['IGN_GAZEBO_RESOURCE_PATH'] = resource_paths
 
     xacro_file  = os.path.join(pkg, 'urdf', 'vector_urdf.xacro')
     world_file  = os.path.join(pkg, 'worlds', 'vector_world.sdf')
-    rviz_config = os.path.join(pkg, 'rviz', 'vector.rviz')
-
     use_sim_time = LaunchConfiguration('use_sim_time', default='true')
     x_pose = LaunchConfiguration('x_pose', default='0.0')
     y_pose = LaunchConfiguration('y_pose', default='0.0')
@@ -86,7 +88,8 @@ def generate_launch_description():
         package='controller_manager',
         executable='spawner',
         arguments=['joint_state_broadcaster',
-                   '--controller-manager-timeout', '120'],
+                   '--controller-manager-timeout', '120',
+                   '--service-call-timeout', '60'],
         output='screen',
     )
 
@@ -94,7 +97,8 @@ def generate_launch_description():
         package='controller_manager',
         executable='spawner',
         arguments=['diff_drive_controller',
-                   '--controller-manager-timeout', '120'],
+                   '--controller-manager-timeout', '120',
+                   '--service-call-timeout', '60'],
         output='screen',
     )
 
@@ -112,16 +116,6 @@ def generate_launch_description():
         ],
     )
 
-    # ── RViz2 ─────────────────────────────────────────────────────────────────
-    rviz = Node(
-        package='rviz2',
-        executable='rviz2',
-        name='rviz2',
-        output='screen',
-        arguments=['-d', rviz_config],
-        parameters=[{'use_sim_time': use_sim_time}],
-    )
-
     return LaunchDescription([
         DeclareLaunchArgument('use_sim_time', default_value='true'),
         DeclareLaunchArgument('x_pose', default_value='0.0'),
@@ -130,17 +124,16 @@ def generate_launch_description():
         # 1. RSP starts immediately
         robot_state_publisher,
 
-        # 2. Gazebo starts after 2s (RSP is ready)
+        # 2. Gazebo headless starts after 2s (RSP is ready)
         TimerAction(period=2.0, actions=[gz_sim]),
 
         # 3. Spawn robot after Gazebo world is loaded (5s)
         TimerAction(period=5.0, actions=[spawn_entity]),
 
-        # 4. Sensor bridge + RViz
+        # 4. Sensor bridge (topics available to any ROS 2 node on the network)
         sensor_bridge,
-        rviz,
 
-        # 5. Controller spawners (wait for controller_manager automatically)
-        TimerAction(period=8.0, actions=[spawn_jsb]),
-        TimerAction(period=10.0, actions=[spawn_ddc]),
+        # 5. Controller spawners (delayed to let controller_manager fully init)
+        TimerAction(period=12.0, actions=[spawn_jsb]),
+        TimerAction(period=15.0, actions=[spawn_ddc]),
     ])
