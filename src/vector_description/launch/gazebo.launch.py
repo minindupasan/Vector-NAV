@@ -104,6 +104,16 @@ def generate_launch_description():
         ],
     )
 
+    # ── EKF: fuses wheel odom + IMU → corrected odom→base_link TF ─────────
+    ekf_config = os.path.join(pkg, 'config', 'ekf.yaml')
+    ekf_node = Node(
+        package='robot_localization',
+        executable='ekf_node',
+        name='ekf_filter_node',
+        output='screen',
+        parameters=[ekf_config, {'use_sim_time': use_sim_time}],
+    )
+
     return LaunchDescription([
         DeclareLaunchArgument('use_sim_time', default_value='true'),
         DeclareLaunchArgument('x_pose', default_value='0.0'),
@@ -124,4 +134,7 @@ def generate_launch_description():
         # 5. Controller spawners (wait for controller_manager automatically)
         TimerAction(period=8.0, actions=[spawn_jsb]),
         TimerAction(period=10.0, actions=[spawn_ddc]),
+
+        # 6. EKF starts after controllers are up
+        TimerAction(period=13.0, actions=[ekf_node]),
     ])
