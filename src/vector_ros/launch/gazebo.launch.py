@@ -15,14 +15,14 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
-    pkg = get_package_share_directory('vector_description')
+    pkg = get_package_share_directory('vector_ros')
     ros_gz_sim_pkg = get_package_share_directory('ros_gz_sim')
 
     # ── Environment for Jetson NVIDIA EGL + Ignition mesh resolution ─────────
     os.environ.setdefault('__EGL_VENDOR_LIBRARY_DIRS', '/usr/share/glvnd/egl_vendor.d/')
     os.environ.setdefault('__GLX_VENDOR_LIBRARY_NAME', 'nvidia')
 
-    pkg_share_parent = os.path.join(get_package_prefix('vector_description'), 'share')
+    pkg_share_parent = os.path.join(get_package_prefix('vector_ros'), 'share')
     models_dir = os.path.join(pkg, 'models')
     resource_paths = os.pathsep.join([pkg_share_parent, models_dir])
     if 'IGN_GAZEBO_RESOURCE_PATH' in os.environ:

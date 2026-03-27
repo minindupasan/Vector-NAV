@@ -1,11 +1,11 @@
-"""Headless Gazebo launcher for VECTOR NAV (Jetson).
+"""SLAM launch for VECTOR NAV.
 
-Runs Ignition Fortress in server-only mode on the Jetson.
-Visualization (RViz2 / Gazebo GUI) runs on a laptop over the network.
+Starts the simulation + SLAM Toolbox for mapping.
+Drive the robot around with teleop to build a map, then save it:
+  ros2 run nav2_map_server map_saver_cli -f ~/vector_nav/maps/my_map
 
 Usage:
-  ros2 launch vector_description sim.launch.py
-  ros2 launch vector_description sim.launch.py x_pose:=1.0 y_pose:=2.0
+  ros2 launch vector_ros slam.launch.py
 """
 
 import os
@@ -23,32 +23,29 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
-    pkg = get_package_share_directory('vector_description')
+    pkg = get_package_share_directory('vector_ros')
     ros_gz_sim_pkg = get_package_share_directory('ros_gz_sim')
 
-    # ── Use CycloneDDS (handles large URDF messages without buffer overflow) ─
     os.environ['RMW_IMPLEMENTATION'] = 'rmw_cyclonedds_cpp'
-
-    # ── Environment for Jetson NVIDIA EGL + Ignition mesh resolution ─────────
     os.environ.setdefault('__EGL_VENDOR_LIBRARY_DIRS', '/usr/share/glvnd/egl_vendor.d/')
     os.environ.setdefault('__GLX_VENDOR_LIBRARY_NAME', 'nvidia')
 
-    pkg_share_parent = os.path.join(get_package_prefix('vector_description'), 'share')
+    pkg_share_parent = os.path.join(get_package_prefix('vector_ros'), 'share')
     models_dir = os.path.join(pkg, 'models')
     resource_paths = os.pathsep.join([pkg_share_parent, models_dir])
     if 'IGN_GAZEBO_RESOURCE_PATH' in os.environ:
         resource_paths += os.pathsep + os.environ['IGN_GAZEBO_RESOURCE_PATH']
     os.environ['IGN_GAZEBO_RESOURCE_PATH'] = resource_paths
 
-    xacro_file  = os.path.join(pkg, 'urdf', 'vector_urdf.xacro')
-    world_file  = os.path.join(pkg, 'worlds', 'vector_world.sdf')
+    xacro_file = os.path.join(pkg, 'urdf', 'vector_urdf.xacro')
+    world_file = os.path.join(pkg, 'worlds', 'vector_world.sdf')
     use_sim_time = LaunchConfiguration('use_sim_time', default='true')
     x_pose = LaunchConfiguration('x_pose', default='0.0')
     y_pose = LaunchConfiguration('y_pose', default='0.0')
 
     robot_description = ParameterValue(Command(['xacro ', xacro_file]), value_type=str)
 
-    # ── robot_state_publisher (starts FIRST so gz_ros2_control can reach it) ──
+    # ── robot_state_publisher ──────────────────────────────────────
     robot_state_publisher = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
@@ -60,7 +57,7 @@ def generate_launch_description():
         }],
     )
 
-    # ── Ignition Gazebo (delayed 2s to let RSP advertise its service) ─────────
+    # ── Gazebo ─────────────────────────────────────────────────────
     gz_sim = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(ros_gz_sim_pkg, 'launch', 'gz_sim.launch.py')
@@ -68,7 +65,6 @@ def generate_launch_description():
         launch_arguments={'gz_args': '-r ' + world_file}.items(),
     )
 
-    # ── Spawn robot (delayed 5s — Gazebo needs time to start on Jetson) ───────
     spawn_entity = Node(
         package='ros_gz_sim',
         executable='create',
@@ -76,14 +72,12 @@ def generate_launch_description():
         output='screen',
         arguments=[
             '-topic', 'robot_description',
-            '-name',  'vector_urdf',
-            '-x', x_pose,
-            '-y', y_pose,
-            '-z', '0.1',
+            '-name', 'vector_urdf',
+            '-x', x_pose, '-y', y_pose, '-z', '0.1',
         ],
     )
 
-    # ── Controller spawners (robust — wait up to 120s for controller_manager) ─
+    # ── Controllers ────────────────────────────────────────────────
     spawn_jsb = Node(
         package='controller_manager',
         executable='spawner',
@@ -102,7 +96,7 @@ def generate_launch_description():
         output='screen',
     )
 
-    # ── Sensor bridges (Ignition → ROS2) ─────────────────────────────────────
+    # ── Sensor bridge ──────────────────────────────────────────────
     sensor_bridge = Node(
         package='ros_gz_bridge',
         executable='parameter_bridge',
@@ -116,14 +110,17 @@ def generate_launch_description():
         ],
     )
 
-    # ── EKF: fuses wheel odom + IMU → corrected odom→base_link TF ─────────
-    ekf_config = os.path.join(pkg, 'config', 'ekf.yaml')
-    ekf_node = Node(
-        package='robot_localization',
-        executable='ekf_node',
-        name='ekf_filter_node',
+    # ── SLAM Toolbox ───────────────────────────────────────────────
+    # TurtleBot3 approach: no EKF needed.
+    # diff_drive_controller publishes odom→base_link directly.
+    # SLAM Toolbox publishes map→odom (corrects drift via scan matching).
+    slam_config = os.path.join(pkg, 'config', 'slam_toolbox.yaml')
+    slam_node = Node(
+        package='slam_toolbox',
+        executable='async_slam_toolbox_node',
+        name='slam_toolbox',
         output='screen',
-        parameters=[ekf_config, {'use_sim_time': use_sim_time}],
+        parameters=[slam_config, {'use_sim_time': use_sim_time}],
     )
 
     return LaunchDescription([
@@ -131,22 +128,11 @@ def generate_launch_description():
         DeclareLaunchArgument('x_pose', default_value='0.0'),
         DeclareLaunchArgument('y_pose', default_value='0.0'),
 
-        # 1. RSP starts immediately
         robot_state_publisher,
-
-        # 2. Gazebo headless starts after 2s (RSP is ready)
         TimerAction(period=2.0, actions=[gz_sim]),
-
-        # 3. Spawn robot after Gazebo world is loaded (5s)
         TimerAction(period=5.0, actions=[spawn_entity]),
-
-        # 4. Sensor bridge (topics available to any ROS 2 node on the network)
         sensor_bridge,
-
-        # 5. Controller spawners (delayed to let controller_manager fully init)
         TimerAction(period=12.0, actions=[spawn_jsb]),
         TimerAction(period=15.0, actions=[spawn_ddc]),
-
-        # 6. EKF starts after controllers are up
-        TimerAction(period=18.0, actions=[ekf_node]),
+        TimerAction(period=18.0, actions=[slam_node]),
     ])

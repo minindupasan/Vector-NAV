@@ -1,0 +1,76 @@
+# ============================================================================
+# VECTOR NAV — Raspberry Pi 5 Docker Compose
+#
+# Grants access to all hardware via /dev volume mount + privileged mode:
+#   GPIO, I2C, SPI, Camera, Serial, etc.
+#
+# Usage:
+#   cd ~/vector_nav/docker/rpi
+#   docker compose up --build
+# ============================================================================
+
+services:
+  vector-control:
+    image: vector-control:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vector-control
+
+    # Host network so DDS multicast works between Pi and Jetson
+    network_mode: host
+
+    # Full hardware access (GPIO, I2C, SPI, camera, serial)
+    privileged: true
+
+    environment:
+      # Must match the Jetson's ROS_DOMAIN_ID for DDS discovery
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+      - GPIOZERO_PIN_FACTORY=lgpio
+
+    volumes:
+      # ── /dev: all device nodes (GPIO chips, I2C, SPI, video, serial) ──
+      - /dev:/dev
+
+      # ── Live source mount for development ──
+      - ./vector_control:/ros2_ws/src/vector_control:ro
+
+      # ── Camera (libcamera runtime socket) ──
+      - /run/libcamera:/run/libcamera
+
+      # ── Firmware / device-tree ──
+      - /lib/firmware:/lib/firmware:ro
+      - /proc/device-tree:/proc/device-tree:ro
+
+    restart: unless-stopped
+
+    command: ["ros2", "launch", "vector_control", "control.launch.py"]
+
+  # --------------------------------------------------------------------------
+  # Camera node (separate so it can be started/stopped independently)
+  # --------------------------------------------------------------------------
+  vector-camera:
+    image: vector-control:latest
+    container_name: vector-camera
+    network_mode: host
+    privileged: true
+
+    environment:
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+
+    volumes:
+      - /dev:/dev
+      - /run/libcamera:/run/libcamera
+      - /lib/firmware:/lib/firmware:ro
+
+    restart: unless-stopped
+
+    # Pi Camera Module 3 typically appears as /dev/video0
+    command: >
+      ros2 run v4l2_camera v4l2_camera_node
+        --ros-args
+        -p video_device:=/dev/video0
+        -p image_size:=[640,480]
+        -p camera_frame_id:=camera_link

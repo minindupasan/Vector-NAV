@@ -1,0 +1,19 @@
+# Large external tooling — exclude from Docker build context
+jetson-containers/
+
+# ROS2 build artifacts
+build/
+install/
+log/
+
+# Python cache
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Git
+.git/
+
+# IDE
+.vscode/

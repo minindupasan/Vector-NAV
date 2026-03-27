@@ -2,10 +2,10 @@
 
 Two usage modes:
   1. Standalone (URDF preview, no Gazebo):
-       ros2 launch vector_description display.launch.py
+       ros2 launch vector_ros display.launch.py
 
   2. Alongside a running Gazebo sim (live sensor/odom data):
-       ros2 launch vector_description display.launch.py use_sim_time:=true
+       ros2 launch vector_ros display.launch.py use_sim_time:=true
      In this mode robot_state_publisher and joint_state_publisher are skipped
      because Gazebo already provides those topics.
 """
@@ -21,7 +21,7 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
-    pkg = get_package_share_directory('vector_description')
+    pkg = get_package_share_directory('vector_ros')
     xacro_file  = os.path.join(pkg, 'urdf', 'vector_urdf.xacro')
     rviz_config = os.path.join(pkg, 'rviz', 'vector.rviz')
 

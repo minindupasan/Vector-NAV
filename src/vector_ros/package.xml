@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>vector_description</name>
+  <name>vector_ros</name>
   <version>0.1.0</version>
-  <description>VECTOR NAV robot description package</description>
+  <description>VECTOR NAV robot description, simulation, SLAM and navigation</description>
   <maintainer email="todo@todo.todo">Maintainer</maintainer>
   <license>MIT</license>
 
@@ -19,6 +19,9 @@
   <exec_depend>diff_drive_controller</exec_depend>
   <exec_depend>joint_state_broadcaster</exec_depend>
   <exec_depend>robot_localization</exec_depend>
+  <exec_depend>slam_toolbox</exec_depend>
+  <exec_depend>navigation2</exec_depend>
+  <exec_depend>nav2_bringup</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

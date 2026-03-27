@@ -1,0 +1,16 @@
+[Unit]
+Description=VECTOR NAV — Raspberry Pi Control (Docker)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/admin/vector_nav/docker/rpi
+ExecStartPre=/usr/bin/docker compose down
+ExecStart=/usr/bin/docker compose up
+ExecStop=/usr/bin/docker compose down
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

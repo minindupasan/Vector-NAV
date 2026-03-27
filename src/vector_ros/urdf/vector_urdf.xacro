@@ -1,8 +1,8 @@
 <?xml version="1.0" ?>
 <robot name="vector_urdf" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <xacro:include filename="$(find vector_description)/urdf/materials.xacro" />
-  <xacro:include filename="$(find vector_description)/urdf/vector_urdf.gazebo" />
+  <xacro:include filename="$(find vector_ros)/urdf/materials.xacro" />
+  <xacro:include filename="$(find vector_ros)/urdf/vector_urdf.gazebo" />
 
   <!-- ============================================================ -->
   <!-- ros2_control hardware interface (velocity-controlled wheels) -->
@@ -62,7 +62,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://vector_description/meshes/base_link.stl" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://vector_ros/meshes/base_link.stl" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="dark_green"/>
     </visual>
@@ -83,7 +83,7 @@
     <visual>
       <origin xyz="0.063875 0.079 -0.0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://vector_description/meshes/motor_rr.stl" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://vector_ros/meshes/motor_rr.stl" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="dark_grey"/>
     </visual>
@@ -104,7 +104,7 @@
     <visual>
       <origin xyz="0.071875 0.089 0.019875" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://vector_description/meshes/wheel_rr.stl" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://vector_ros/meshes/wheel_rr.stl" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="rubber_black"/>
     </visual>
@@ -125,7 +125,7 @@
     <visual>
       <origin xyz="-0.05 0.02 -0.025" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://vector_description/meshes/lidar_base.stl" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://vector_ros/meshes/lidar_base.stl" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="dark_grey"/>
     </visual>
@@ -146,7 +146,7 @@
     <visual>
       <origin xyz="-0.092 -0.0 -0.0732" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://vector_description/meshes/lidar_link.stl" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://vector_ros/meshes/lidar_link.stl" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="gunmetal"/>
     </visual>
@@ -167,7 +167,7 @@
     <visual>
       <origin xyz="-0.079875 -0.079 -0.0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://vector_description/meshes/motor_fl.stl" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://vector_ros/meshes/motor_fl.stl" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="dark_grey"/>
     </visual>
@@ -188,7 +188,7 @@
     <visual>
       <origin xyz="0.063825 -0.064 -0.0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://vector_description/meshes/motor_rl.stl" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://vector_ros/meshes/motor_rl.stl" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="dark_grey"/>
     </visual>
@@ -209,7 +209,7 @@
     <visual>
       <origin xyz="-0.079825 0.064 -0.0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://vector_description/meshes/motor_fr.stl" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://vector_ros/meshes/motor_fr.stl" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="dark_grey"/>
     </visual>
@@ -230,7 +230,7 @@
     <visual>
       <origin xyz="-0.071875 -0.089 0.019875" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://vector_description/meshes/wheel_fl.stl" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://vector_ros/meshes/wheel_fl.stl" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="rubber_black"/>
     </visual>
@@ -251,7 +251,7 @@
     <visual>
       <origin xyz="0.071776 -0.089 0.019875" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://vector_description/meshes/wheel_rl.stl" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://vector_ros/meshes/wheel_rl.stl" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="rubber_black"/>
     </visual>
@@ -272,7 +272,7 @@
     <visual>
       <origin xyz="-0.071776 0.089 0.019875" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://vector_description/meshes/wheel_fr.stl" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://vector_ros/meshes/wheel_fr.stl" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="rubber_black"/>
     </visual>
