@@ -3,7 +3,7 @@
 ## Context
 Building a ROS2-based differential drive robot (VECTOR NAV) on Jetson Orin Nano Super 8GB.
 The voice pipeline enables natural language navigation commands via:
-**Mic → STT (faster-whisper) → LLM with function calling (Qwen2.5-3B via Ollama) → RAG (FAISS) → ROS2 Nav2 → TTS (Piper)**
+**Mic → STT (faster-whisper) → LLM with function calling (Llama-3.2-3B-Instruct via NanoLLM) → RAG (FAISS) → ROS2 Nav2 → TTS (Piper)**
 
 **Current system state:**
 - JetPack 6.2.2 / L4T 36.5.0 ✅
@@ -11,7 +11,7 @@ The voice pipeline enables natural language navigation commands via:
 - Python 3.10.12, NumPy 1.21.5 ✅
 - 203 GB free disk space ✅
 - ROS2 Humble: NOT installed ❌
-- Ollama, PyTorch, faster-whisper, Piper, FAISS: NOT installed ❌
+- NanoLLM, PyTorch, faster-whisper, Piper, FAISS: NOT installed ❌
 
 ---
 
@@ -26,7 +26,7 @@ The voice pipeline enables natural language navigation commands via:
 │   │   └── vector_nav_voice/
 │   │       ├── __init__.py
 │   │       ├── stt_node.py              # faster-whisper STT → publishes /stt/text
-│   │       ├── llm_node.py              # Ollama Qwen2.5-3B, function calling
+│   │       ├── llm_node.py              # Llama-3.2-3B-Instruct via NanoLLM, function calling
 │   │       └── tts_node.py              # Piper TTS → audio output
 │   ├── vector_nav_rag/                  # Phase 3 — RAG
 │   │   ├── package.xml
@@ -87,10 +87,10 @@ echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
 source ~/.bashrc
 ```
 
-### 1b. Install Ollama + Pull LLM
+### 1b. Launch NanoLLM + Llama-3.2-3B-Instruct
 ```bash
-curl -fsSL https://ollama.com/install.sh | sh
-ollama pull qwen2.5:3b
+# See scripts/run_llm.sh for Docker container launch
+bash ~/vector_nav/scripts/run_llm.sh
 ```
 
 ### 1c. Install Python AI Stack
@@ -132,7 +132,7 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
-**Verify:** `ros2 --version` + `ollama run qwen2.5:3b "say hello"` + `nvcc --version`
+**Verify:** `ros2 --version` + NanoLLM WebSocket responds on `wss://localhost:49000` + `nvcc --version`
 
 ---
 
@@ -149,7 +149,7 @@ source install/setup.bash
 
 **`llm_node.py`**
 - Subscribes to `/stt/text`
-- Sends to Ollama REST API (`http://localhost:11434/api/chat`) with tool definitions loaded from `config/tools.json`
+- Connects to NanoLLM via WebSocket (`wss://localhost:49000`) with tool definitions loaded from `config/tools.json`
 - Parses response: if tool call → publishes to `/llm/tool_call` (std_msgs/String JSON)
 - If plain text → publishes to `/tts/input` (std_msgs/String)
 - Calls RAG service before LLM if query seems knowledge-based
@@ -271,7 +271,7 @@ source install/setup.bash
 
 **`full_stack.launch.py`** launches:
 1. `stt_node` (cuda, small model)
-2. `llm_node` (connects to Ollama)
+2. `llm_node` (connects to NanoLLM)
 3. `tts_node` (Piper)
 4. `rag_node` (FAISS)
 5. `nav_bridge_node`
@@ -291,7 +291,7 @@ source install/setup.bash
 | Component | RAM |
 |---|---|
 | faster-whisper small (CUDA int8) | ~500 MB |
-| Qwen2.5-3B Q4 via Ollama | ~2000 MB |
+| Llama-3.2-3B-Instruct q4f16_ft via NanoLLM | ~1800 MB |
 | FAISS + MiniLM-L6-v2 | ~400 MB |
 | Piper TTS (CPU) | ~150 MB |
 | OpenCV + AprilTag | ~300 MB |

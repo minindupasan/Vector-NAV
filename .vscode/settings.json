@@ -44,5 +44,5 @@
     "**/.venv": true,
     "**/__pycache__": true
   },
-  "cmake.sourceDirectory": "/home/jetson/vector_nav/src/vector_interfaces"
+  "cmake.sourceDirectory": "/home/admin/vector_nav/src/vector_interfaces"
 }

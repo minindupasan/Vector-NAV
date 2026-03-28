@@ -23,7 +23,7 @@ Sensors
 
 AI Capabilities
 - Speech Recognition: Faster-Whisper model running locally on CUDA
-- Language Model: Qwen2.5-3B running on Jetson GPU via Ollama (fully offline)
+- Language Model: Llama-3.2-3B-Instruct running on Jetson GPU via NanoLLM (fully offline)
 - Knowledge Retrieval: FAISS-based RAG for warehouse-specific information
 - Text to Speech: Piper TTS for verbal responses
 - Vision: AprilTag detection for precision docking, scene classification for location verification

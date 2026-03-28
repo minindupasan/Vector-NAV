@@ -2,9 +2,10 @@
 Launch file for VECTOR NAV hardware control (Raspberry Pi).
 
 Brings up:
-  1. motor_driver  — /cmd_vel → motors, encoders → /wheel/odom
-  2. imu_publisher — MPU6500+HMC5883L → /imu (Madgwick filtered)
-  3. robot_localization EKF — fuses /wheel/odom + /imu → odom→base_link TF
+  1. motor_driver   — /cmd_vel → motors, encoders → /wheel/odom
+  2. imu_publisher  — MPU6500+HMC5883L → /imu (Madgwick filtered)
+  3. rplidar        — RPLidar A1 M8 → /scan
+  4. robot_localization EKF — fuses /wheel/odom + /imu → odom→base_link TF
 """
 
 import os
@@ -35,6 +36,21 @@ def generate_launch_description():
             executable='imu_publisher',
             name='imu_publisher',
             parameters=[control_params],
+            output='screen',
+        ),
+
+        # RPLidar A1 M8 → /scan
+        Node(
+            package='rplidar_ros',
+            executable='rplidar_node',
+            name='rplidar_node',
+            parameters=[{
+                'serial_port': '/dev/ttyUSB0',
+                'serial_baudrate': 115200,
+                'frame_id': 'lidar_link',
+                'angle_compensate': True,
+                'scan_mode': 'Standard',
+            }],
             output='screen',
         ),
 

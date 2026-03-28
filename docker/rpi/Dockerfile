@@ -43,6 +43,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-compressed-image-transport \
     ros-humble-camera-info-manager \
     ros-humble-rmw-cyclonedds-cpp \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Python packages (GPIO, IMU, Camera) ─────────────────────────────────────
@@ -58,12 +59,16 @@ ENV VECTOR_WS=/ros2_ws
 RUN mkdir -p ${VECTOR_WS}/src
 WORKDIR ${VECTOR_WS}
 
-# Copy only vector_control package (built on Pi, talks to Jetson via DDS)
+# ── RPLidar from source (apt package has buffer overflow on ARM) ───────────
+RUN cd ${VECTOR_WS}/src && \
+    git clone -b ros2 https://github.com/Slamtec/rplidar_ros.git
+
+# Copy vector_control package
 COPY vector_control ${VECTOR_WS}/src/vector_control
 
-# Build
+# Build both packages
 RUN source /opt/ros/humble/setup.bash && \
-    colcon build --packages-select vector_control --symlink-install
+    colcon build --packages-select rplidar_ros vector_control --symlink-install
 
 # ── Entrypoint ──────────────────────────────────────────────────────────────
 COPY entrypoint.sh /entrypoint.sh

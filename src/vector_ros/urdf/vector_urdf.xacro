@@ -312,7 +312,7 @@
 
   <!-- lidar_base → lidar_link (fixed) -->
   <joint name="lidar_joint" type="fixed">
-    <origin xyz="0.042 0.02 0.0482" rpy="0 0 0"/>
+    <origin xyz="0.042 0.02 0.0482" rpy="0 0 3.14159"/>
     <parent link="lidar_base"/>
     <child link="lidar_link"/>
   </joint>

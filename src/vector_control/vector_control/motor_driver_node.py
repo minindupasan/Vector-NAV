@@ -24,6 +24,7 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy
 
 from geometry_msgs.msg import Twist, TransformStamped, Quaternion
 from nav_msgs.msg import Odometry
+from sensor_msgs.msg import JointState
 import tf2_ros
 
 import glob as _glob
@@ -106,12 +107,18 @@ class HBridgeMotor:
 
 
 class QuadratureEncoder:
-    """Quadrature encoder using Phase A (interrupt) + Phase B (direction)."""
+    """Quadrature encoder: 2x decoding (both edges on Phase A).
+
+    Uses gpiozero Button for both rising and falling edges on Phase A,
+    with Phase B for direction. This doubles resolution vs rising-only
+    and is more reliable at high RPM.
+    """
 
     def __init__(self, pin_a, pin_b, ticks_per_rev, wheel_radius):
         self.ticks_per_rev = ticks_per_rev
         self.wheel_radius = wheel_radius
-        self.meters_per_tick = (2.0 * math.pi * wheel_radius) / ticks_per_rev
+        # 2x decoding: 2 edges per encoder cycle
+        self.meters_per_tick = (2.0 * math.pi * wheel_radius) / (ticks_per_rev * 2)
 
         self._ticks = 0
         self._lock = threading.Lock()
@@ -119,12 +126,19 @@ class QuadratureEncoder:
         # Phase B for direction sensing
         self._phase_b = Button(pin_b, pull_up=True, bounce_time=None)
 
-        # Phase A triggers counting on rising edge
+        # Phase A: count on BOTH rising and falling edges
         self._phase_a = Button(pin_a, pull_up=True, bounce_time=None)
         self._phase_a.when_pressed = self._on_rising
+        self._phase_a.when_released = self._on_falling
 
     def _on_rising(self):
-        # If B is high when A rises → one direction; B low → other
+        # A rises: if B is low → forward, B is high → backward
+        direction = 1 if not self._phase_b.is_pressed else -1
+        with self._lock:
+            self._ticks += direction
+
+    def _on_falling(self):
+        # A falls: if B is high → forward, B is low → backward
         direction = 1 if self._phase_b.is_pressed else -1
         with self._lock:
             self._ticks += direction
@@ -232,6 +246,14 @@ class MotorDriverNode(Node):
             self.pid_left = PIDController(kp, ki, kd)
             self.pid_right = PIDController(kp, ki, kd)
 
+        # ---------- Joint state tracking (cumulative wheel positions in rad) ----------
+        self.joint_names = [
+            'wheel_fl_joint', 'wheel_rl_joint',   # left
+            'wheel_fr_joint', 'wheel_rr_joint',   # right
+        ]
+        self.joint_positions = [0.0, 0.0, 0.0, 0.0]
+        self.rad_per_tick = (2.0 * math.pi) / ticks
+
         # ---------- Odometry state ----------
         self.x = 0.0
         self.y = 0.0
@@ -249,6 +271,7 @@ class MotorDriverNode(Node):
             Twist, '/cmd_vel', self._cmd_vel_cb, qos)
 
         self.pub_odom = self.create_publisher(Odometry, '/wheel/odom', qos)
+        self.pub_joint = self.create_publisher(JointState, '/joint_states', qos)
 
         if self.publish_tf:
             self.tf_broadcaster = tf2_ros.TransformBroadcaster(self)
@@ -286,12 +309,18 @@ class MotorDriverNode(Node):
 
         # --- Read encoders for odometry (average front+rear per side) ---
         # LF encoder direction is inverted in hardware, negate it
-        _, d_lf = self.enc_lf.get_and_reset()
-        _, d_lr = self.enc_lr.get_and_reset()
-        _, d_rf = self.enc_rf.get_and_reset()
-        _, d_rr = self.enc_rr.get_and_reset()
+        t_lf, d_lf = self.enc_lf.get_and_reset()
+        t_lr, d_lr = self.enc_lr.get_and_reset()
+        t_rf, d_rf = self.enc_rf.get_and_reset()
+        t_rr, d_rr = self.enc_rr.get_and_reset()
 
-        d_left = (-d_lf + d_lr) / 2.0
+        # Accumulate joint positions (rad) for RViz URDF visualization
+        self.joint_positions[0] += -t_lf * self.rad_per_tick  # wheel_fl (inverted)
+        self.joint_positions[1] += -t_lr * self.rad_per_tick  # wheel_rl (inverted)
+        self.joint_positions[2] +=  t_rf * self.rad_per_tick  # wheel_fr
+        self.joint_positions[3] +=  t_rr * self.rad_per_tick  # wheel_rr
+
+        d_left = (-d_lf + -d_lr) / 2.0
         d_right = (d_rf + d_rr) / 2.0
 
         v_left_meas = d_left / dt
@@ -362,6 +391,19 @@ class MotorDriverNode(Node):
         odom.twist.covariance[35] = 0.03  # vyaw
 
         self.pub_odom.publish(odom)
+
+        # --- Publish joint states (wheel positions for RViz URDF) ---
+        js = JointState()
+        js.header.stamp = now.to_msg()
+        js.name = self.joint_names
+        js.position = list(self.joint_positions)
+        js.velocity = [
+            v_left_meas / self.wheel_rad,   # wheel_fl rad/s
+            v_left_meas / self.wheel_rad,   # wheel_rl
+            v_right_meas / self.wheel_rad,  # wheel_fr
+            v_right_meas / self.wheel_rad,  # wheel_rr
+        ]
+        self.pub_joint.publish(js)
 
         # --- Optionally broadcast TF ---
         if self.publish_tf:
