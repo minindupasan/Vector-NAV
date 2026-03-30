@@ -1,0 +1,26 @@
+[Unit]
+Description=SLLidar ROS2 Node (RPLidar A1 M8)
+After=network.target
+
+[Service]
+Type=simple
+User=admin
+Environment=ROS_DOMAIN_ID=0
+Environment=RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+
+ExecStart=/bin/bash -c '\
+  source /opt/ros/humble/setup.bash && \
+  source /home/admin/vector_nav/install/setup.bash && \
+  ros2 run sllidar_ros2 sllidar_node \
+    --ros-args \
+    -p serial_port:=/dev/ttyUSB0 \
+    -p serial_baudrate:=115200 \
+    -p frame_id:=lidar_link \
+    -p angle_compensate:=true \
+    -p scan_mode:=Boost'
+
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

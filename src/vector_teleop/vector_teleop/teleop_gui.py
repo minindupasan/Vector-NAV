@@ -10,7 +10,7 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
-from sensor_msgs.msg import Imu
+from sensor_msgs.msg import Imu, Joy
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -263,25 +263,39 @@ class RosSignals(QObject):
     """Bridge between ROS callbacks (threads) and Qt (main thread)."""
     odom_received = pyqtSignal(float, float, float, float, float)
     imu_received = pyqtSignal(float, float, float)
+    joy_received = pyqtSignal(float, float)  # linear, angular (both -1..1)
 
 
 class TeleopNode(Node):
-    """ROS 2 node for publishing Twist and subscribing to odometry/IMU."""
+    """ROS 2 node for publishing Twist and subscribing to odometry/IMU/Joy."""
 
     def __init__(self, signals: RosSignals):
         super().__init__('vector_teleop_gui')
         self.signals = signals
 
-        self.pub_cmd = self.create_publisher(
-            Twist, '/diff_drive_controller/cmd_vel_unstamped', 10)
+        # Declare parameters so topics work for both sim and real hardware
+        self.declare_parameter('cmd_vel_topic', '/cmd_vel')
+        self.declare_parameter('odom_topic', '/odometry/filtered')
+        self.declare_parameter('joy_axis_linear', 1)   # left stick Y
+        self.declare_parameter('joy_axis_angular', 0)   # left stick X
+        self.declare_parameter('joy_deadzone', 0.08)
+
+        cmd_vel_topic = self.get_parameter('cmd_vel_topic').value
+        odom_topic = self.get_parameter('odom_topic').value
+
+        self.pub_cmd = self.create_publisher(Twist, cmd_vel_topic, 10)
 
         self.sub_odom = self.create_subscription(
-            Odometry, '/diff_drive_controller/odom', self._odom_cb, 10)
+            Odometry, odom_topic, self._odom_cb, 10)
 
         self.sub_imu = self.create_subscription(
             Imu, '/imu', self._imu_cb, 10)
 
-        self.get_logger().info('Teleop GUI node started')
+        self.sub_joy = self.create_subscription(
+            Joy, '/joy', self._joy_cb, 10)
+
+        self.get_logger().info(
+            f'Teleop GUI node started  cmd_vel={cmd_vel_topic}  odom={odom_topic}')
 
     def publish_twist(self, linear: float, angular: float):
         msg = Twist()
@@ -307,6 +321,21 @@ class TeleopNode(Node):
             msg.linear_acceleration.y,
             msg.linear_acceleration.z,
         )
+
+    def _joy_cb(self, msg: Joy):
+        axis_lin = self.get_parameter('joy_axis_linear').value
+        axis_ang = self.get_parameter('joy_axis_angular').value
+        deadzone = self.get_parameter('joy_deadzone').value
+        if len(msg.axes) <= max(axis_lin, axis_ang):
+            return
+        lin = msg.axes[axis_lin]
+        ang = msg.axes[axis_ang]
+        # Apply deadzone
+        if abs(lin) < deadzone:
+            lin = 0.0
+        if abs(ang) < deadzone:
+            ang = 0.0
+        self.signals.joy_received.emit(lin, ang)
 
 
 class ToggleSwitch(QWidget):
@@ -380,10 +409,14 @@ class TeleopWindow(QMainWindow):
         self._toggle_mode = False          # False = HOLD, True = TOGGLE
         self._toggle_lin = 0.0             # latched direction in toggle mode
         self._toggle_ang = 0.0
+        self._joy_active = False           # True when joystick overrides keys
+        self._joy_lin = 0.0                # raw joystick axes (-1..1)
+        self._joy_ang = 0.0
 
         # ── signals ─────────────────────────────────────────────────
         signals.odom_received.connect(self._on_odom)
         signals.imu_received.connect(self._on_imu)
+        signals.joy_received.connect(self._on_joy)
 
         # ── central widget ──────────────────────────────────────────
         central = QWidget()
@@ -467,7 +500,7 @@ class TeleopWindow(QMainWindow):
             btn.pressed.connect(lambda l=lin, a=ang: self._on_btn_press(l, a))
             btn.released.connect(self._on_btn_release)
 
-        keys_hint = _make_label("U I O / J K L  or  W A S D", size=10,
+        keys_hint = _make_label("Keys: U I O / J K L / W A S D  ·  Joystick", size=10,
                                  color=TEXT_DIM, align=Qt.AlignCenter)
         dpad_layout.addWidget(keys_hint, 3, 0, 1, 3)
         dpad_box.setLayout(dpad_layout)
@@ -767,6 +800,22 @@ class TeleopWindow(QMainWindow):
         self._imu_labels["X"].setText(f"{ax:.2f}")
         self._imu_labels["Y"].setText(f"{ay:.2f}")
         self._imu_labels["Z"].setText(f"{az:.2f}")
+
+    def _on_joy(self, lin: float, ang: float):
+        """Joystick axes provide smooth proportional control (-1..1)."""
+        self._joy_lin = lin
+        self._joy_ang = ang
+        # Joystick is active whenever any axis is non-zero
+        self._joy_active = (lin != 0.0 or ang != 0.0)
+        if self._joy_active:
+            self._cur_lin = lin * self._max_linear
+            self._cur_ang = ang * self._max_angular
+            self._highlight_buttons(lin, ang)
+        elif not self._keys_pressed and not self._toggle_mode:
+            # Joystick released and no keys held → stop
+            self._cur_lin = 0.0
+            self._cur_ang = 0.0
+            self._clear_all_buttons()
 
 
 def main(args=None):

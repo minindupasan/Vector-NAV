@@ -4,7 +4,7 @@ motor_driver:
   ros__parameters:
     # Diff-drive geometry (must match URDF / diff_drive_controller.yaml)
     wheel_separation: 0.178
-    wheel_radius: 0.0325
+    wheel_radius: 0.034
 
     # Encoder: 11 PPM × ~20.5:1 gearbox = 225 ticks/output rev
     ticks_per_rev: 225
@@ -12,22 +12,17 @@ motor_driver:
     # Control loop rate (Hz)
     control_rate: 50.0
 
-    # Feed-forward + PID: per-motor PID corrects individual motor variation
+    # Feed-forward + PID: conservative gains, PID only corrects error
     pid_kp: 0.15
     pid_ki: 0.05
     pid_kd: 0.0
     use_pid: true
 
-    # Minimum PWM to overcome motor static friction (dead zone).
-    # Tune with motor_calibrate_deep.py — set to the highest dead zone
-    # across all 4 motors in both directions.
-    min_pwm: 0.18
-
     # Stop motors if no cmd_vel received for this long (seconds)
     cmd_vel_timeout: 0.5
 
     # Maximum wheel linear speed (m/s)
-    # 280 RPM × 2π × 0.0325m radius / 60 ≈ 0.95 m/s no-load
+    # 280 RPM × 2π × 0.034m radius / 60 ≈ 1.0 m/s no-load
     max_motor_speed: 0.5
 
     # Frame IDs

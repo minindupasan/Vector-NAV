@@ -41,15 +41,15 @@ def generate_launch_description():
 
         # RPLidar A1 M8 → /scan
         Node(
-            package='sllidar_ros2',
-            executable='sllidar_node',
+            package='rplidar_ros',
+            executable='rplidar_node',
             name='rplidar_node',
             parameters=[{
                 'serial_port': '/dev/ttyUSB0',
                 'serial_baudrate': 115200,
                 'frame_id': 'lidar_link',
                 'angle_compensate': True,
-                'scan_mode': 'Boost',
+                'scan_mode': 'Standard',
             }],
             output='screen',
         ),

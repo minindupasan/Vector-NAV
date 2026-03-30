@@ -107,42 +107,34 @@ class HBridgeMotor:
 
 
 class QuadratureEncoder:
-    """Encoder using Phase A pulse counting (magnitude only).
-
-    At high RPM, Python callback latency causes Phase B direction reads
-    to be unreliable. Instead, we count pulses for magnitude and use
-    the motor command direction externally.
-    """
+    """Quadrature encoder using Phase A (interrupt) + Phase B (direction)."""
 
     def __init__(self, pin_a, pin_b, ticks_per_rev, wheel_radius):
         self.ticks_per_rev = ticks_per_rev
         self.wheel_radius = wheel_radius
         self.meters_per_tick = (2.0 * math.pi * wheel_radius) / ticks_per_rev
 
-        self._count = 0
+        self._ticks = 0
         self._lock = threading.Lock()
 
-        # Phase A triggers counting on rising edge (magnitude only)
+        # Phase B for direction sensing
+        self._phase_b = Button(pin_b, pull_up=True, bounce_time=None)
+
+        # Phase A triggers counting on rising edge
         self._phase_a = Button(pin_a, pull_up=True, bounce_time=None)
         self._phase_a.when_pressed = self._on_rising
 
-        # Phase B kept for low-speed direction (hand-turning detection)
-        self._phase_b = Button(pin_b, pull_up=True, bounce_time=None)
-
     def _on_rising(self):
+        # If B is high when A rises → one direction; B low → other
+        direction = 1 if self._phase_b.is_pressed else -1
         with self._lock:
-            self._count += 1
+            self._ticks += direction
 
-    def get_and_reset(self, direction_sign=1):
-        """Return (ticks, distance_meters) since last call.
-
-        direction_sign: +1 or -1, set by the caller based on motor command
-        or low-speed Phase B reading.
-        """
+    def get_and_reset(self):
+        """Return (ticks, distance_meters) since last call and reset counter."""
         with self._lock:
-            c = self._count
-            self._count = 0
-        t = c * direction_sign
+            t = self._ticks
+            self._ticks = 0
         return t, t * self.meters_per_tick
 
     def close(self):
@@ -200,7 +192,6 @@ class MotorDriverNode(Node):
         self.declare_parameter('pid_ki', 0.05)
         self.declare_parameter('pid_kd', 0.0)
         self.declare_parameter('use_pid', True)
-        self.declare_parameter('min_pwm', 0.18)  # minimum PWM to overcome static friction
         self.declare_parameter('odom_frame', 'odom')
         self.declare_parameter('base_frame', 'base_link')
         self.declare_parameter('publish_tf', False)  # EKF publishes tf
@@ -215,7 +206,6 @@ class MotorDriverNode(Node):
         ki = self.get_parameter('pid_ki').value
         kd = self.get_parameter('pid_kd').value
         self.use_pid = self.get_parameter('use_pid').value
-        self.min_pwm = self.get_parameter('min_pwm').value
         self.odom_frame = self.get_parameter('odom_frame').value
         self.base_frame = self.get_parameter('base_frame').value
         self.publish_tf = self.get_parameter('publish_tf').value
@@ -238,14 +228,10 @@ class MotorDriverNode(Node):
         self.enc_rf = QuadratureEncoder(ENC_RF_A, ENC_RF_B, ticks, self.wheel_rad)
         self.enc_rr = QuadratureEncoder(ENC_RR_A, ENC_RR_B, ticks, self.wheel_rad)
 
-        # ---------- PID controllers (one per motor) ----------
-        # Each motor gets its own PID so it individually tracks the side
-        # target velocity, compensating for motor-to-motor variation.
+        # ---------- PID controllers (one per side) ----------
         if self.use_pid:
-            self.pid_lf = PIDController(kp, ki, kd)
-            self.pid_lr = PIDController(kp, ki, kd)
-            self.pid_rf = PIDController(kp, ki, kd)
-            self.pid_rr = PIDController(kp, ki, kd)
+            self.pid_left = PIDController(kp, ki, kd)
+            self.pid_right = PIDController(kp, ki, kd)
 
         # ---------- Joint state tracking (cumulative wheel positions in rad) ----------
         self.joint_names = [
@@ -264,14 +250,6 @@ class MotorDriverNode(Node):
         self.cmd_linear = 0.0
         self.cmd_angular = 0.0
         self.last_cmd_time = self.get_clock().now()
-
-        # ---------- Motor direction tracking ----------
-        # Encoder reads magnitude only; direction comes from the actual PWM
-        # sign sent to the motor on the PREVIOUS cycle (not the target).
-        self._motor_dir = [1, 1, 1, 1]  # [LF, LR, RF, RR]
-        # Track target direction per side to reset PID on direction change
-        self._target_dir_left = 0
-        self._target_dir_right = 0
 
         # ---------- ROS interfaces ----------
         qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
@@ -292,8 +270,8 @@ class MotorDriverNode(Node):
         self.get_logger().info(
             f'Motor driver started — sep={self.wheel_sep:.3f}m, '
             f'rad={self.wheel_rad:.3f}m, ticks/rev={ticks}, '
-            f'max_speed={self.max_speed}m/s, min_pwm={self.min_pwm}, '
-            f'pid={self.use_pid}, rate={self.control_rate}Hz')
+            f'max_speed={self.max_speed}m/s, pid={self.use_pid}, '
+            f'rate={self.control_rate}Hz')
 
     # ------------------------------------------------------------------
     def _cmd_vel_cb(self, msg: Twist):
@@ -316,112 +294,54 @@ class MotorDriverNode(Node):
         v_left_target = self.cmd_linear - (self.cmd_angular * self.wheel_sep / 2.0)
         v_right_target = self.cmd_linear + (self.cmd_angular * self.wheel_sep / 2.0)
 
-        # --- Read encoders using PREVIOUS cycle's actual motor direction ---
-        # The encoder counts magnitude only. Using the actual PWM sign from
-        # the previous cycle (not the target) prevents feedback sign errors
-        # when PID correction flips the motor during transitions.
-        t_lf, d_lf = self.enc_lf.get_and_reset(self._motor_dir[0])
-        t_lr, d_lr = self.enc_lr.get_and_reset(self._motor_dir[1])
-        t_rf, d_rf = self.enc_rf.get_and_reset(self._motor_dir[2])
-        t_rr, d_rr = self.enc_rr.get_and_reset(self._motor_dir[3])
+        # --- Read encoders for odometry (average front+rear per side) ---
+        # LF encoder direction is inverted in hardware, negate it
+        t_lf, d_lf = self.enc_lf.get_and_reset()
+        t_lr, d_lr = self.enc_lr.get_and_reset()
+        t_rf, d_rf = self.enc_rf.get_and_reset()
+        t_rr, d_rr = self.enc_rr.get_and_reset()
 
-        # Joint positions for RViz
-        # Left wheels: negative rotation = forward (URDF Y-axis, left side)
-        # Right wheels: positive rotation = forward (joint frame flipped)
-        self.joint_positions[0] += -t_lf * self.rad_per_tick  # wheel_fl
-        self.joint_positions[1] += -t_lr * self.rad_per_tick  # wheel_rl
+        # Accumulate joint positions (rad) for RViz URDF visualization
+        self.joint_positions[0] += -t_lf * self.rad_per_tick  # wheel_fl (inverted)
+        self.joint_positions[1] +=  t_lr * self.rad_per_tick  # wheel_rl
         self.joint_positions[2] +=  t_rf * self.rad_per_tick  # wheel_fr
         self.joint_positions[3] +=  t_rr * self.rad_per_tick  # wheel_rr
 
-        # Per-motor measured velocities
-        v_lf_meas = d_lf / dt
-        v_lr_meas = d_lr / dt
-        v_rf_meas = d_rf / dt
-        v_rr_meas = d_rr / dt
-
-        # Odometry: average per side (for pose estimation)
-        d_left = (d_lf + d_lr) / 2.0
+        d_left = (-d_lf + d_lr) / 2.0
         d_right = (d_rf + d_rr) / 2.0
-        v_left_meas = (v_lf_meas + v_lr_meas) / 2.0
-        v_right_meas = (v_rf_meas + v_rr_meas) / 2.0
 
-        # --- Reset PID on direction change ---
-        # When a side's target direction flips (e.g. forward → rotation),
-        # the integral term would fight the new direction. Reset it.
-        new_dir_left = 0 if abs(v_left_target) < 0.001 else (1 if v_left_target > 0 else -1)
-        new_dir_right = 0 if abs(v_right_target) < 0.001 else (1 if v_right_target > 0 else -1)
+        v_left_meas = d_left / dt
+        v_right_meas = d_right / dt
 
-        if self.use_pid:
-            if new_dir_left != 0 and new_dir_left != self._target_dir_left:
-                self.pid_lf.reset()
-                self.pid_lr.reset()
-            if new_dir_right != 0 and new_dir_right != self._target_dir_right:
-                self.pid_rf.reset()
-                self.pid_rr.reset()
-        self._target_dir_left = new_dir_left
-        self._target_dir_right = new_dir_right
-
-        # --- Feed-forward + per-motor PID correction ---
-        # Each motor gets its own PID so wheels on the same side stay
-        # matched despite motor-to-motor variation.
+        # --- Feed-forward + PID correction ---
+        # Feed-forward: direct velocity-to-PWM mapping (does the heavy lifting)
         ff_left = v_left_target / self.max_speed
         ff_right = v_right_target / self.max_speed
 
         if self.use_pid:
-            if new_dir_left == 0 and new_dir_right == 0:
-                # Dead stop — reset all PIDs to avoid windup
-                pwm_lf = 0.0
-                pwm_lr = 0.0
-                pwm_rf = 0.0
-                pwm_rr = 0.0
-                self.pid_lf.reset()
-                self.pid_lr.reset()
-                self.pid_rf.reset()
-                self.pid_rr.reset()
+            if abs(v_left_target) < 0.001 and abs(v_right_target) < 0.001:
+                # Dead stop — reset PID to avoid windup
+                pwm_left = 0.0
+                pwm_right = 0.0
+                self.pid_left.reset()
+                self.pid_right.reset()
             else:
-                pwm_lf = ff_left + self.pid_lf.compute(v_left_target, v_lf_meas, dt)
-                pwm_lr = ff_left + self.pid_lr.compute(v_left_target, v_lr_meas, dt)
-                pwm_rf = ff_right + self.pid_rf.compute(v_right_target, v_rf_meas, dt)
-                pwm_rr = ff_right + self.pid_rr.compute(v_right_target, v_rr_meas, dt)
+                pid_left = self.pid_left.compute(v_left_target, v_left_meas, dt)
+                pid_right = self.pid_right.compute(v_right_target, v_right_meas, dt)
+                pwm_left = ff_left + pid_left
+                pwm_right = ff_right + pid_right
         else:
-            pwm_lf = ff_left
-            pwm_lr = ff_left
-            pwm_rf = ff_right
-            pwm_rr = ff_right
+            pwm_left = ff_left
+            pwm_right = ff_right
 
-        pwm_lf = max(-1.0, min(1.0, pwm_lf))
-        pwm_lr = max(-1.0, min(1.0, pwm_lr))
-        pwm_rf = max(-1.0, min(1.0, pwm_rf))
-        pwm_rr = max(-1.0, min(1.0, pwm_rr))
+        pwm_left = max(-1.0, min(1.0, pwm_left))
+        pwm_right = max(-1.0, min(1.0, pwm_right))
 
-        # Dead zone compensation: ensure any non-zero command exceeds
-        # the minimum PWM needed to overcome static friction.
-        if self.min_pwm > 0.0:
-            if abs(pwm_lf) > 0.01:
-                pwm_lf = math.copysign(max(abs(pwm_lf), self.min_pwm), pwm_lf)
-            if abs(pwm_lr) > 0.01:
-                pwm_lr = math.copysign(max(abs(pwm_lr), self.min_pwm), pwm_lr)
-            if abs(pwm_rf) > 0.01:
-                pwm_rf = math.copysign(max(abs(pwm_rf), self.min_pwm), pwm_rf)
-            if abs(pwm_rr) > 0.01:
-                pwm_rr = math.copysign(max(abs(pwm_rr), self.min_pwm), pwm_rr)
-
-        # Drive motors — each with its own corrected PWM
-        self.motor_lf.set_speed(pwm_lf)
-        self.motor_lr.set_speed(pwm_lr)
-        self.motor_rf.set_speed(pwm_rf)
-        self.motor_rr.set_speed(pwm_rr)
-
-        # Update motor direction tracking for next cycle's encoder reads.
-        # Only update when PWM is non-trivial to avoid noise flipping direction.
-        if abs(pwm_lf) > 0.01:
-            self._motor_dir[0] = 1 if pwm_lf > 0 else -1
-        if abs(pwm_lr) > 0.01:
-            self._motor_dir[1] = 1 if pwm_lr > 0 else -1
-        if abs(pwm_rf) > 0.01:
-            self._motor_dir[2] = 1 if pwm_rf > 0 else -1
-        if abs(pwm_rr) > 0.01:
-            self._motor_dir[3] = 1 if pwm_rr > 0 else -1
+        # Drive motors
+        self.motor_lf.set_speed(pwm_left)
+        self.motor_lr.set_speed(pwm_left)
+        self.motor_rf.set_speed(pwm_right)
+        self.motor_rr.set_speed(pwm_right)
 
         # --- Forward kinematics: update odometry ---
         d_center = (d_left + d_right) / 2.0
@@ -465,10 +385,10 @@ class MotorDriverNode(Node):
         js.name = self.joint_names
         js.position = list(self.joint_positions)
         js.velocity = [
-            v_lf_meas / self.wheel_rad,   # wheel_fl rad/s
-            v_lr_meas / self.wheel_rad,   # wheel_rl
-            v_rf_meas / self.wheel_rad,   # wheel_fr
-            v_rr_meas / self.wheel_rad,   # wheel_rr
+            v_left_meas / self.wheel_rad,   # wheel_fl rad/s
+            v_left_meas / self.wheel_rad,   # wheel_rl
+            v_right_meas / self.wheel_rad,  # wheel_fr
+            v_right_meas / self.wheel_rad,  # wheel_rr
         ]
         self.pub_joint.publish(js)
 

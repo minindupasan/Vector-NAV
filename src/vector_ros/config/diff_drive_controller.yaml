@@ -44,8 +44,8 @@
     angular:
       z:
         has_velocity_limits: true
-        max_velocity: 2.0
-        min_velocity: -2.0
+        max_velocity: 3.0
+        min_velocity: -3.0
         has_acceleration_limits: true
-        max_acceleration: 2.0
-        min_acceleration: -2.0
+        max_acceleration: 1.5
+        min_acceleration: -1.5
