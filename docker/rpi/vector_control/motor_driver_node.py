@@ -204,6 +204,9 @@ class MotorDriverNode(Node):
         self.declare_parameter('odom_frame', 'odom')
         self.declare_parameter('base_frame', 'base_link')
         self.declare_parameter('publish_tf', False)  # EKF publishes tf
+        self.declare_parameter('max_accel', 1.0)  # m/s² acceleration limit
+        self.declare_parameter('velocity_filter_alpha', 0.35)  # EMA filter
+        self.declare_parameter('log_interval', 1.0)  # RPM log interval (s)
 
         self.wheel_sep = self.get_parameter('wheel_separation').value
         self.wheel_rad = self.get_parameter('wheel_radius').value
@@ -219,6 +222,9 @@ class MotorDriverNode(Node):
         self.odom_frame = self.get_parameter('odom_frame').value
         self.base_frame = self.get_parameter('base_frame').value
         self.publish_tf = self.get_parameter('publish_tf').value
+        self.max_accel = self.get_parameter('max_accel').value
+        self.ema_alpha = self.get_parameter('velocity_filter_alpha').value
+        self.log_interval = self.get_parameter('log_interval').value
 
         # ---------- Hardware: standby pins ----------
         self.stby1 = DigitalOutputDevice(MD1_STBY)
@@ -273,6 +279,16 @@ class MotorDriverNode(Node):
         self._target_dir_left = 0
         self._target_dir_right = 0
 
+        # Velocity ramping state (smooth acceleration/deceleration)
+        self._ramped_linear = 0.0
+        self._ramped_angular = 0.0
+
+        # EMA-filtered encoder velocities for PID feedback
+        self._v_filt = [0.0, 0.0, 0.0, 0.0]  # [LF, LR, RF, RR]
+
+        # RPM diagnostic logging
+        self._log_accum = 0.0
+
         # ---------- ROS interfaces ----------
         qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
 
@@ -302,6 +318,15 @@ class MotorDriverNode(Node):
         self.last_cmd_time = self.get_clock().now()
 
     # ------------------------------------------------------------------
+    @staticmethod
+    def _ramp_towards(current, target, max_delta):
+        """Move current towards target by at most max_delta."""
+        diff = target - current
+        if abs(diff) <= max_delta:
+            return target
+        return current + math.copysign(max_delta, diff)
+
+    # ------------------------------------------------------------------
     def _control_loop(self):
         now = self.get_clock().now()
         dt = self.dt
@@ -312,9 +337,17 @@ class MotorDriverNode(Node):
             self.cmd_linear = 0.0
             self.cmd_angular = 0.0
 
+        # --- Smooth velocity ramping (acceleration limiter) ---
+        accel_delta = self.max_accel * dt
+        ang_accel_delta = self.max_accel / (self.wheel_sep / 2.0) * dt
+        self._ramped_linear = self._ramp_towards(
+            self._ramped_linear, self.cmd_linear, accel_delta)
+        self._ramped_angular = self._ramp_towards(
+            self._ramped_angular, self.cmd_angular, ang_accel_delta)
+
         # --- Diff-drive inverse kinematics: target wheel speeds (m/s) ---
-        v_left_target = self.cmd_linear - (self.cmd_angular * self.wheel_sep / 2.0)
-        v_right_target = self.cmd_linear + (self.cmd_angular * self.wheel_sep / 2.0)
+        v_left_target = self._ramped_linear - (self._ramped_angular * self.wheel_sep / 2.0)
+        v_right_target = self._ramped_linear + (self._ramped_angular * self.wheel_sep / 2.0)
 
         # --- Read encoders using PREVIOUS cycle's actual motor direction ---
         # The encoder counts magnitude only. Using the actual PWM sign from
@@ -333,11 +366,18 @@ class MotorDriverNode(Node):
         self.joint_positions[2] +=  t_rf * self.rad_per_tick  # wheel_fr
         self.joint_positions[3] +=  t_rr * self.rad_per_tick  # wheel_rr
 
-        # Per-motor measured velocities
+        # Per-motor measured velocities (raw)
         v_lf_meas = d_lf / dt
         v_lr_meas = d_lr / dt
         v_rf_meas = d_rf / dt
         v_rr_meas = d_rr / dt
+
+        # EMA filter: smooth encoder quantization noise for PID feedback
+        a = self.ema_alpha
+        self._v_filt[0] = a * v_lf_meas + (1.0 - a) * self._v_filt[0]
+        self._v_filt[1] = a * v_lr_meas + (1.0 - a) * self._v_filt[1]
+        self._v_filt[2] = a * v_rf_meas + (1.0 - a) * self._v_filt[2]
+        self._v_filt[3] = a * v_rr_meas + (1.0 - a) * self._v_filt[3]
 
         # Odometry: average per side (for pose estimation)
         d_left = (d_lf + d_lr) / 2.0
@@ -379,10 +419,10 @@ class MotorDriverNode(Node):
                 self.pid_rf.reset()
                 self.pid_rr.reset()
             else:
-                pwm_lf = ff_left + self.pid_lf.compute(v_left_target, v_lf_meas, dt)
-                pwm_lr = ff_left + self.pid_lr.compute(v_left_target, v_lr_meas, dt)
-                pwm_rf = ff_right + self.pid_rf.compute(v_right_target, v_rf_meas, dt)
-                pwm_rr = ff_right + self.pid_rr.compute(v_right_target, v_rr_meas, dt)
+                pwm_lf = ff_left + self.pid_lf.compute(v_left_target, self._v_filt[0], dt)
+                pwm_lr = ff_left + self.pid_lr.compute(v_left_target, self._v_filt[1], dt)
+                pwm_rf = ff_right + self.pid_rf.compute(v_right_target, self._v_filt[2], dt)
+                pwm_rr = ff_right + self.pid_rr.compute(v_right_target, self._v_filt[3], dt)
         else:
             pwm_lf = ff_left
             pwm_lr = ff_left
@@ -422,6 +462,21 @@ class MotorDriverNode(Node):
             self._motor_dir[2] = 1 if pwm_rf > 0 else -1
         if abs(pwm_rr) > 0.01:
             self._motor_dir[3] = 1 if pwm_rr > 0 else -1
+
+        # --- Periodic RPM diagnostic logging ---
+        self._log_accum += dt
+        if self._log_accum >= self.log_interval:
+            self._log_accum = 0.0
+            if abs(self._ramped_linear) > 0.001 or abs(self._ramped_angular) > 0.001:
+                rpm_f = 60.0 / (2.0 * math.pi * self.wheel_rad)
+                self.get_logger().info(
+                    f'RPM  LF:{self._v_filt[0]*rpm_f:6.1f}  '
+                    f'LR:{self._v_filt[1]*rpm_f:6.1f}  '
+                    f'RF:{self._v_filt[2]*rpm_f:6.1f}  '
+                    f'RR:{self._v_filt[3]*rpm_f:6.1f}  '
+                    f'| tgt L:{v_left_target*rpm_f:5.1f} R:{v_right_target*rpm_f:5.1f}'
+                    f'| PWM {pwm_lf:+.2f} {pwm_lr:+.2f} '
+                    f'{pwm_rf:+.2f} {pwm_rr:+.2f}')
 
         # --- Forward kinematics: update odometry ---
         d_center = (d_left + d_right) / 2.0

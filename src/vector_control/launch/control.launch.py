@@ -20,7 +20,7 @@ def generate_launch_description():
     control_params = os.path.join(pkg_control, 'config', 'control_params.yaml')
     ekf_params = os.path.join(pkg_control, 'config', 'ekf_hw.yaml')
 
-    return LaunchDescription([
+    nodes = [
         # Motor driver & encoder odometry
         Node(
             package='vector_control',
@@ -39,21 +39,6 @@ def generate_launch_description():
             output='screen',
         ),
 
-        # RPLidar A1 M8 → /scan
-        Node(
-            package='sllidar_ros2',
-            executable='sllidar_node',
-            name='rplidar_node',
-            parameters=[{
-                'serial_port': '/dev/ttyUSB0',
-                'serial_baudrate': 115200,
-                'frame_id': 'lidar_link',
-                'angle_compensate': True,
-                'scan_mode': 'Boost',
-            }],
-            output='screen',
-        ),
-
         # EKF: fuse wheel odom + IMU → filtered odom + TF
         Node(
             package='robot_localization',
@@ -62,4 +47,27 @@ def generate_launch_description():
             parameters=[ekf_params],
             output='screen',
         ),
-    ])
+    ]
+
+    # RPLidar — only include if sllidar_ros2 is installed
+    try:
+        get_package_share_directory('sllidar_ros2')
+        nodes.append(
+            Node(
+                package='sllidar_ros2',
+                executable='sllidar_node',
+                name='rplidar_node',
+                parameters=[{
+                    'serial_port': '/dev/ttyUSB0',
+                    'serial_baudrate': 115200,
+                    'frame_id': 'lidar_link',
+                    'angle_compensate': True,
+                    'scan_mode': 'Boost',
+                }],
+                output='screen',
+            )
+        )
+    except Exception:
+        pass  # sllidar_ros2 not available in this environment
+
+    return LaunchDescription(nodes)
