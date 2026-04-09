@@ -22,7 +22,8 @@ def generate_launch_description():
         DeclareLaunchArgument('ws_url',      default_value='wss://localhost:49000'),
         DeclareLaunchArgument('rag_top_k',   default_value='2'),
         DeclareLaunchArgument('tools_file',  default_value=''),
-        DeclareLaunchArgument('tts_model',   default_value='/home/jetson/vector_nav/models/tts/en_US-ryan-high.onnx'),
+        DeclareLaunchArgument('tts_voice',   default_value='af_heart'),
+        DeclareLaunchArgument('tts_speed',   default_value='1.0'),
         DeclareLaunchArgument('tts_device',  default_value=''),
         DeclareLaunchArgument('tts_volume',  default_value='1.0'),
         DeclareLaunchArgument('stt_model',   default_value='base.en'),
@@ -66,16 +67,18 @@ def generate_launch_description():
             }],
         ),
 
-        # ── TTS node — Piper TTS (CPU, ~160ms latency) ───────────────────────
+        # ── TTS node — Kokoro TTS (TensorRT GPU) ────────────────────────────
         Node(
             package='vector_tts',
             executable='tts_node',
             name='tts_node',
             output='screen',
             parameters=[{
-                'model_path': LaunchConfiguration('tts_model'),
-                'device':     LaunchConfiguration('tts_device'),
-                'volume':     LaunchConfiguration('tts_volume'),
+                'voice':  LaunchConfiguration('tts_voice'),
+                'speed':  LaunchConfiguration('tts_speed'),
+                'device': LaunchConfiguration('tts_device'),
+                'volume': LaunchConfiguration('tts_volume'),
+                'use_trt': True,
             }],
         ),
 

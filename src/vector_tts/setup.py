@@ -15,7 +15,7 @@ setup(
     zip_safe=True,
     maintainer='VECTOR NAV Team',
     maintainer_email='todo@example.com',
-    description='Piper TTS ROS2 node for VECTOR NAV',
+    description='Kokoro TTS ROS2 node for VECTOR NAV',
     license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={

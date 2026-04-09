@@ -145,7 +145,7 @@ class RAGEngine:
         """
         print("\n[RAG] Loading embedding model...")
         t0          = time.time()
-        self.model  = SentenceTransformer(EMBEDDING_MODEL)
+        self.model  = SentenceTransformer(EMBEDDING_MODEL, device='cpu')
         print(f"[RAG] Model loaded in {time.time() - t0:.1f}s")
 
         if not force_rebuild and cache_is_valid():

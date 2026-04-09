@@ -121,6 +121,11 @@ class LLMNode(Node):
         self.get_logger().info(f'[T+{(t_rag-t0)*1000:.0f}ms] RAG context retrieved')
         self._run_llm(text, context, t0)
 
+    def _on_interrupt(self, msg: Bool) -> None:
+        if msg.data:
+            self.get_logger().info('Barge-in interrupt received — stopping current response')
+            self._interrupted.set()
+
     def _on_rag_context(self, msg: RagContext) -> None:
         self._rag_context = msg.context
         self._rag_event.set()
@@ -163,11 +168,14 @@ class LLMNode(Node):
             return self._rag_context
 
     def _run_llm(self, text: str, context: str, t0: float) -> None:
+        self._interrupted.clear()
         try:
             chunk_count = 0
 
             def on_chunk(sentence):
                 nonlocal chunk_count
+                if self._interrupted.is_set():
+                    return
                 chunk_count += 1
                 self.get_logger().info(
                     f'[T+{(time.monotonic()-t0)*1000:.0f}ms] TTS chunk {chunk_count}: "{sentence}"'

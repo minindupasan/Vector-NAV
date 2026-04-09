@@ -1,5 +1,5 @@
 #!/bin/bash
-# run_llm.sh - Optimized Llama-3-8B loader for Vector Nav
+# run_llm.sh - Llama-3.2-3B via NanoLLM
 
 # --- Load token from .env.local ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -15,7 +15,7 @@ fi
 # ----------------------------------
 
 echo "----------------------------------------------------"
-echo "  VECTOR NAV — Llama-3.2-3B Optimizer"
+echo "  VECTOR NAV — Llama-3.2-3B"
 echo "----------------------------------------------------"
 
 if [ -z "$HUGGINGFACE_TOKEN" ]; then
@@ -25,25 +25,28 @@ fi
 
 # 1. Maximize Jetson Performance
 echo "[1/4] Setting Max Performance Mode (MAXN_SUPER) and Locking Clocks..."
-sudo nvpmodel -m 2
+sudo nvpmodel -m 0
 sudo jetson_clocks
 
 # 2. Cleanup old instances
-echo "[2/4] Cleaning up old containers..."
+echo "[2/4] Stopping old containers..."
 sudo docker rm -f nano_llm_server 2>/dev/null || true
 
-# 3. Launch NanoLLM (Llama-3-8B)
-echo "[3/4] Starting NanoLLM Server (Llama-3.2-3B via mlc)..."
-# jetson-containers run handles all nvidia-specific flags
-# Using --dns 8.8.8.8 to ensure downloads don't hang
-jetson-containers run \
+# 3. Launch NanoLLM (Llama-3.2-3B)
+echo "[3/4] Starting NanoLLM Server..."
+"$SCRIPT_DIR/../jetson-containers/jetson-containers" run \
   --name nano_llm_server \
   --detach \
   --dns 8.8.8.8 \
   --env HUGGINGFACE_TOKEN=$HUGGINGFACE_TOKEN \
   -v "$SCRIPT_DIR/fix_tied_embeddings.py:/tmp/fix_tied_embeddings.py:ro" \
   dustynv/nano_llm:r36.4.0 \
-  bash -c "python3 /tmp/fix_tied_embeddings.py meta-llama/Llama-3.2-3B-Instruct && python3 -m nano_llm.agents.web_chat --model meta-llama/Llama-3.2-3B-Instruct --api mlc --quantization q4f16_ft --max-context-len 1024"
+  bash -c "python3 /tmp/fix_tied_embeddings.py meta-llama/Llama-3.2-3B-Instruct && \
+    python3 -m nano_llm.agents.web_chat \
+      --model meta-llama/Llama-3.2-3B-Instruct \
+      --api mlc \
+      --quantization q4f16_ft \
+      --max-context-len 1024"
 
 # 4. Success message and logs
 echo "[4/4] Server is starting in the background."

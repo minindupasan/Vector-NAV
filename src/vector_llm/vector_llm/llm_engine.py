@@ -361,24 +361,17 @@ def _clean_for_tts(text: str) -> str:
 
 # Sentence boundaries: . ! ? followed by space/newline, or newline itself
 _SENTENCE_BOUNDARY_RE = re.compile(r'(?<=[.!?])\s+|\n')
-# Clause boundaries: comma followed by space (fallback for long run-on sentences)
-_CLAUSE_BOUNDARY_RE = re.compile(r',\s+')
 
-# If no sentence boundary found and text is longer than this, split on commas
-_CLAUSE_SPLIT_THRESHOLD = 80
+# Minimum chunk size to emit — avoids stuttering on short sentences like "Sure."
+_MIN_CHUNK_SIZE = 40
 
 
 def _find_last_sentence_boundary(text: str) -> int:
-    """Find the position after the last sentence boundary in text.
-    Falls back to comma-splitting for long run-on sentences."""
+    """Find the position after the last sentence boundary in text,
+    only if the resulting chunk is at least _MIN_CHUNK_SIZE characters."""
     last_pos = 0
     for m in _SENTENCE_BOUNDARY_RE.finditer(text):
-        last_pos = m.end()
-    if last_pos > 0:
-        return last_pos
-    # No sentence boundary — split on commas if text is long enough
-    if len(text) >= _CLAUSE_SPLIT_THRESHOLD:
-        for m in _CLAUSE_BOUNDARY_RE.finditer(text):
+        if m.end() >= _MIN_CHUNK_SIZE:
             last_pos = m.end()
     return last_pos
 
