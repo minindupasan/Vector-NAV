@@ -41,6 +41,10 @@ motor_driver:
     pid_ki_rr: 8.12396
     pid_kd_rr: 0.0
 
+    # Minimum speeds to prevent stalling (identified via teleop)
+    min_linear_speed: 0.07
+    min_angular_speed: 1.0
+
     # Minimum PWM to overcome static friction
     min_pwm: 0.18
 

@@ -1,0 +1,51 @@
+VECTOR NAV — Robot Specifications and Capabilities
+
+Robot Identity
+Name: VECTOR NAV
+Type: Differential Drive Autonomous Mobile Robot
+Platform: ROS 2 Humble on Ubuntu 22.04
+Primary Computer: NVIDIA Jetson Orin Nano Super 8GB
+Secondary Computer: Raspberry Pi 5
+
+Physical Specifications
+Drive Type: Differential drive with 4 DC motors and encoders
+Maximum Speed: 0.5 m/s (navigation mode), 0.2 m/s (docking mode)
+Maximum Payload: 5 kg (flat surface)
+Battery Life: Approximately 4 hours of continuous operation
+Dimensions: Approximately 40cm x 35cm x 30cm
+Weight: Approximately 4 kg without payload
+
+Sensors
+- RPLidar A1M8: 360-degree laser range finder for obstacle detection and SLAM mapping
+- Raspberry Pi Camera: Front-facing camera for AprilTag detection and scene understanding
+- Wheel Encoders: On all 4 motors for odometry
+- Battery Monitor: Continuous voltage monitoring
+
+AI Capabilities
+- Speech Recognition: Faster-Whisper model running locally on CUDA
+- Language Model: Llama-3.2-3B-Instruct running on Jetson GPU via NanoLLM (fully offline)
+- Knowledge Retrieval: FAISS-based RAG for warehouse-specific information
+- Text to Speech: Piper TTS for verbal responses
+- Vision: AprilTag detection for precision docking, scene classification for location verification
+
+Navigation
+- SLAM: Simultaneous Localization and Mapping using RPLidar
+- Path Planning: Nav2 stack with obstacle avoidance
+- Precision Docking: AprilTag-guided final approach
+- The robot can navigate to any pre-mapped location by name
+
+What VECTOR NAV Can Do
+- Navigate autonomously to named locations in the warehouse
+- Answer questions about warehouse locations, procedures, and operations
+- Dock precisely at any AprilTag-marked station
+- Detect and avoid obstacles in real-time
+- Operate fully offline without internet connection
+- Respond to natural language voice commands in English
+
+What VECTOR NAV Cannot Do
+- Navigate in unmapped areas — it requires a pre-built map
+- Carry loads heavier than 5 kg
+- Climb stairs or traverse rough outdoor terrain
+- Operate in multi-robot coordination scenarios
+- Connect to the internet or use cloud services
+- Understand languages other than English (current version)

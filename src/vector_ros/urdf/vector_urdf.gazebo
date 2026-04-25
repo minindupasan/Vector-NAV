@@ -1,0 +1,333 @@
+<?xml version="1.0" ?>
+<robot name="vector_urdf" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- gz_ros2_control plugin — loads diff_drive_controller via controller_manager -->
+  <gazebo>
+    <plugin filename="libgz_ros2_control-system.so" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+      <parameters>$(find vector_ros)/config/diff_drive_controller.yaml</parameters>
+    </plugin>
+  </gazebo>
+
+  <!-- ============================================================ -->
+  <!-- Base — dark green metallic                                    -->
+  <!-- ============================================================ -->
+  <gazebo reference="base_link">
+    <visual>
+      <material>
+        <ambient>0.04 0.12 0.04 1</ambient>
+        <diffuse>0.08 0.22 0.08 1</diffuse>
+        <specular>0.6 0.7 0.6 1</specular>
+        <pbr>
+          <metal>
+            <metalness>0.7</metalness>
+            <roughness>0.25</roughness>
+          </metal>
+        </pbr>
+      </material>
+    </visual>
+    <mu1>0.2</mu1>
+    <mu2>0.2</mu2>
+    <selfCollide>false</selfCollide>
+    <gravity>true</gravity>
+  </gazebo>
+
+  <!-- ============================================================ -->
+  <!-- IMU sensor                                                    -->
+  <!-- ============================================================ -->
+  <gazebo reference="imu_link">
+    <sensor name="vector_imu" type="imu">
+      <always_on>true</always_on>
+      <update_rate>200</update_rate>
+      <topic>/imu</topic>
+      <gz_frame_id>imu_link</gz_frame_id>
+      <imu>
+        <angular_velocity>
+          <x>
+            <noise type="gaussian">
+              <mean>0.0</mean>
+              <stddev>2e-4</stddev>
+            </noise>
+          </x>
+          <y>
+            <noise type="gaussian">
+              <mean>0.0</mean>
+              <stddev>2e-4</stddev>
+            </noise>
+          </y>
+          <z>
+            <noise type="gaussian">
+              <mean>0.0</mean>
+              <stddev>2e-4</stddev>
+            </noise>
+          </z>
+        </angular_velocity>
+        <linear_acceleration>
+          <x>
+            <noise type="gaussian">
+              <mean>0.0</mean>
+              <stddev>1.7e-2</stddev>
+            </noise>
+          </x>
+          <y>
+            <noise type="gaussian">
+              <mean>0.0</mean>
+              <stddev>1.7e-2</stddev>
+            </noise>
+          </y>
+          <z>
+            <noise type="gaussian">
+              <mean>0.0</mean>
+              <stddev>1.7e-2</stddev>
+            </noise>
+          </z>
+        </linear_acceleration>
+      </imu>
+    </sensor>
+  </gazebo>
+
+  <!-- ============================================================ -->
+  <!-- Motors — dark grey metallic                                   -->
+  <!-- ============================================================ -->
+  <gazebo reference="motor_fl">
+    <visual>
+      <material>
+        <ambient>0.09 0.09 0.10 1</ambient>
+        <diffuse>0.18 0.18 0.20 1</diffuse>
+        <specular>0.5 0.5 0.5 1</specular>
+        <pbr>
+          <metal>
+            <metalness>0.8</metalness>
+            <roughness>0.3</roughness>
+          </metal>
+        </pbr>
+      </material>
+    </visual>
+    <mu1>0.2</mu1>
+    <mu2>0.2</mu2>
+    <selfCollide>false</selfCollide>
+  </gazebo>
+
+  <gazebo reference="motor_fr">
+    <visual>
+      <material>
+        <ambient>0.09 0.09 0.10 1</ambient>
+        <diffuse>0.18 0.18 0.20 1</diffuse>
+        <specular>0.5 0.5 0.5 1</specular>
+        <pbr>
+          <metal>
+            <metalness>0.8</metalness>
+            <roughness>0.3</roughness>
+          </metal>
+        </pbr>
+      </material>
+    </visual>
+    <mu1>0.2</mu1>
+    <mu2>0.2</mu2>
+    <selfCollide>false</selfCollide>
+  </gazebo>
+
+  <gazebo reference="motor_rl">
+    <visual>
+      <material>
+        <ambient>0.09 0.09 0.10 1</ambient>
+        <diffuse>0.18 0.18 0.20 1</diffuse>
+        <specular>0.5 0.5 0.5 1</specular>
+        <pbr>
+          <metal>
+            <metalness>0.8</metalness>
+            <roughness>0.3</roughness>
+          </metal>
+        </pbr>
+      </material>
+    </visual>
+    <mu1>0.2</mu1>
+    <mu2>0.2</mu2>
+    <selfCollide>false</selfCollide>
+  </gazebo>
+
+  <gazebo reference="motor_rr">
+    <visual>
+      <material>
+        <ambient>0.09 0.09 0.10 1</ambient>
+        <diffuse>0.18 0.18 0.20 1</diffuse>
+        <specular>0.5 0.5 0.5 1</specular>
+        <pbr>
+          <metal>
+            <metalness>0.8</metalness>
+            <roughness>0.3</roughness>
+          </metal>
+        </pbr>
+      </material>
+    </visual>
+    <mu1>0.2</mu1>
+    <mu2>0.2</mu2>
+    <selfCollide>false</selfCollide>
+  </gazebo>
+
+  <!-- ============================================================ -->
+  <!-- Wheels — black rubber (matte, non-metallic)                   -->
+  <!-- ============================================================ -->
+  <!-- mu1 = rolling friction (high for traction)                   -->
+  <!-- mu2 = lateral friction (low to allow skid-steer turning)      -->
+  <gazebo reference="wheel_fl">
+    <visual>
+      <material>
+        <ambient>0.02 0.02 0.02 1</ambient>
+        <diffuse>0.05 0.05 0.05 1</diffuse>
+        <specular>0.1 0.1 0.1 1</specular>
+        <pbr>
+          <metal>
+            <metalness>0.0</metalness>
+            <roughness>0.9</roughness>
+          </metal>
+        </pbr>
+      </material>
+    </visual>
+    <mu1>1.0</mu1>
+    <mu2>1.0</mu2>
+    <kp>1000000.0</kp>
+    <kd>100.0</kd>
+    <minDepth>0.001</minDepth>
+    <selfCollide>false</selfCollide>
+  </gazebo>
+
+  <gazebo reference="wheel_fr">
+    <visual>
+      <material>
+        <ambient>0.02 0.02 0.02 1</ambient>
+        <diffuse>0.05 0.05 0.05 1</diffuse>
+        <specular>0.1 0.1 0.1 1</specular>
+        <pbr>
+          <metal>
+            <metalness>0.0</metalness>
+            <roughness>0.9</roughness>
+          </metal>
+        </pbr>
+      </material>
+    </visual>
+    <mu1>1.0</mu1>
+    <mu2>1.0</mu2>
+    <kp>1000000.0</kp>
+    <kd>100.0</kd>
+    <minDepth>0.001</minDepth>
+    <selfCollide>false</selfCollide>
+  </gazebo>
+
+  <gazebo reference="wheel_rl">
+    <visual>
+      <material>
+        <ambient>0.02 0.02 0.02 1</ambient>
+        <diffuse>0.05 0.05 0.05 1</diffuse>
+        <specular>0.1 0.1 0.1 1</specular>
+        <pbr>
+          <metal>
+            <metalness>0.0</metalness>
+            <roughness>0.9</roughness>
+          </metal>
+        </pbr>
+      </material>
+    </visual>
+    <mu1>1.0</mu1>
+    <mu2>1.0</mu2>
+    <kp>1000000.0</kp>
+    <kd>100.0</kd>
+    <minDepth>0.001</minDepth>
+    <selfCollide>false</selfCollide>
+  </gazebo>
+
+  <gazebo reference="wheel_rr">
+    <visual>
+      <material>
+        <ambient>0.02 0.02 0.02 1</ambient>
+        <diffuse>0.05 0.05 0.05 1</diffuse>
+        <specular>0.1 0.1 0.1 1</specular>
+        <pbr>
+          <metal>
+            <metalness>0.0</metalness>
+            <roughness>0.9</roughness>
+          </metal>
+        </pbr>
+      </material>
+    </visual>
+    <mu1>1.0</mu1>
+    <mu2>1.0</mu2>
+    <kp>1000000.0</kp>
+    <kd>100.0</kd>
+    <minDepth>0.001</minDepth>
+    <selfCollide>false</selfCollide>
+  </gazebo>
+
+  <!-- ============================================================ -->
+  <!-- LiDAR mount — dark grey metallic                              -->
+  <!-- ============================================================ -->
+  <gazebo reference="lidar_base">
+    <visual>
+      <material>
+        <ambient>0.09 0.09 0.10 1</ambient>
+        <diffuse>0.18 0.18 0.20 1</diffuse>
+        <specular>0.5 0.5 0.5 1</specular>
+        <pbr>
+          <metal>
+            <metalness>0.8</metalness>
+            <roughness>0.3</roughness>
+          </metal>
+        </pbr>
+      </material>
+    </visual>
+    <mu1>0.2</mu1>
+    <mu2>0.2</mu2>
+    <selfCollide>false</selfCollide>
+  </gazebo>
+
+  <!-- ============================================================ -->
+  <!-- RPLidar A1M8 — gunmetal metallic                              -->
+  <!-- ============================================================ -->
+  <gazebo reference="lidar_link">
+    <visual>
+      <material>
+        <ambient>0.07 0.07 0.09 1</ambient>
+        <diffuse>0.15 0.15 0.18 1</diffuse>
+        <specular>0.5 0.5 0.55 1</specular>
+        <pbr>
+          <metal>
+            <metalness>0.75</metalness>
+            <roughness>0.2</roughness>
+          </metal>
+        </pbr>
+      </material>
+    </visual>
+    <mu1>0.2</mu1>
+    <mu2>0.2</mu2>
+    <selfCollide>false</selfCollide>
+
+    <sensor name="rplidar_a1m8" type="gpu_lidar">
+      <always_on>true</always_on>
+      <visualize>true</visualize>
+      <update_rate>10</update_rate>
+      <topic>/scan</topic>
+      <gz_frame_id>lidar_link</gz_frame_id>
+
+      <lidar>
+        <scan>
+          <horizontal>
+            <samples>360</samples>
+            <resolution>1</resolution>
+            <min_angle>-3.14159265358979</min_angle>
+            <max_angle>3.14159265358979</max_angle>
+          </horizontal>
+        </scan>
+        <range>
+          <min>0.15</min>
+          <max>12.0</max>
+          <resolution>0.01</resolution>
+        </range>
+        <noise>
+          <type>gaussian</type>
+          <mean>0.0</mean>
+          <stddev>0.01</stddev>
+        </noise>
+      </lidar>
+    </sensor>
+  </gazebo>
+
+</robot>

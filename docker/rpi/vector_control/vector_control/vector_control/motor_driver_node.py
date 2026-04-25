@@ -218,6 +218,8 @@ class MotorDriverNode(Node):
         self.declare_parameter('control_rate', 50.0)
         self.declare_parameter('cmd_vel_timeout', 0.5)
         self.declare_parameter('max_motor_speed', 1.0)  # m/s at wheel
+        self.declare_parameter('min_linear_speed', 0.07) # m/s min command
+        self.declare_parameter('min_angular_speed', 1.0) # rad/s min command
         self.declare_parameter('min_pwm', 0.18)  # minimum PWM to overcome static friction
         self.declare_parameter('odom_frame', 'odom')
         self.declare_parameter('base_frame', 'base_link')
@@ -254,6 +256,8 @@ class MotorDriverNode(Node):
         self.control_rate = self.get_parameter('control_rate').value
         self.cmd_timeout = self.get_parameter('cmd_vel_timeout').value
         self.max_speed = self.get_parameter('max_motor_speed').value
+        self.min_linear_v = self.get_parameter('min_linear_speed').value
+        self.min_angular_v = self.get_parameter('min_angular_speed').value
         self.min_pwm = self.get_parameter('min_pwm').value
         self.odom_frame = self.get_parameter('odom_frame').value
         self.base_frame = self.get_parameter('base_frame').value
@@ -388,13 +392,22 @@ class MotorDriverNode(Node):
             self.cmd_linear = 0.0
             self.cmd_angular = 0.0
 
+        # --- Enforce minimum speeds for moving commands ---
+        linear_v = self.cmd_linear
+        angular_v = self.cmd_angular
+
+        if 0.001 < abs(linear_v) < self.min_linear_v:
+            linear_v = math.copysign(self.min_linear_v, linear_v)
+        if 0.001 < abs(angular_v) < self.min_angular_v:
+            angular_v = math.copysign(self.min_angular_v, angular_v)
+
         # --- Smooth velocity ramping (acceleration limiter) ---
         accel_delta = self.max_accel * dt
         ang_accel_delta = self.max_accel / (self.wheel_sep / 2.0) * dt
         self._ramped_linear = self._ramp_towards(
-            self._ramped_linear, self.cmd_linear, accel_delta)
+            self._ramped_linear, linear_v, accel_delta)
         self._ramped_angular = self._ramp_towards(
-            self._ramped_angular, self.cmd_angular, ang_accel_delta)
+            self._ramped_angular, angular_v, ang_accel_delta)
 
         # --- Diff-drive inverse kinematics: target wheel speeds (m/s) ---
         v_left_target = self._ramped_linear - (self._ramped_angular * self.wheel_sep / 2.0)
