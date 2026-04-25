@@ -12,16 +12,14 @@ motor_driver:
     # Control loop rate (Hz)
     control_rate: 50.0
 
-    # Feed-forward + PID: per-motor PID corrects individual motor variation
-    pid_kp: 0.15
-    pid_ki: 0.05
+    # Feed-forward + PID: tune via pid_dashboard.py web UI, then copy values here.
+    pid_kp: 0.0
+    pid_ki: 0.0
     pid_kd: 0.0
     use_pid: true
 
     # Minimum PWM to overcome motor static friction (dead zone).
-    # Tune with motor_calibrate_deep.py — set to the highest dead zone
-    # across all 4 motors in both directions.
-    min_pwm: 0.18
+    min_pwm: 0.25
 
     # Stop motors if no cmd_vel received for this long (seconds)
     cmd_vel_timeout: 0.5
@@ -29,6 +27,15 @@ motor_driver:
     # Maximum wheel linear speed (m/s)
     # 280 RPM × 2π × 0.0325m radius / 60 ≈ 0.95 m/s no-load
     max_motor_speed: 0.5
+
+    # Smooth acceleration limit (m/s²) — prevents jerky starts/stops
+    max_accel: 2.5
+
+    # EMA filter alpha for encoder velocity feedback (0=max smooth, 1=raw)
+    velocity_filter_alpha: 0.50
+
+    # RPM diagnostic log interval (seconds, 0 to disable)
+    log_interval: 1.0
 
     # Frame IDs
     odom_frame: odom

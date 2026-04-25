@@ -20,5 +20,8 @@ jetson-containers/
 # Large model files
 *.onnx
 
+# SSL certs (auto-generated)
+certs/
+
 # OS
 .DS_Store
