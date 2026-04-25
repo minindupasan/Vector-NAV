@@ -14,6 +14,7 @@ Then open http://<pi-ip>:5000 in a browser.
 
 import argparse
 import math
+import os
 import threading
 import time
 import json
@@ -445,6 +446,24 @@ def on_enable_all(data):
             motors[i].stop()
             pids[i].reset()
             v_filtered[i] = 0.0
+
+
+@socketio.on('export_yaml')
+def on_export_yaml(data):
+    yaml_content = data.get('yaml', '')
+    try:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        config_path = os.path.abspath(os.path.join(script_dir, '..', 'config', 'control_params_tuned.yaml'))
+        
+        # Fallback to current directory if config dir doesn't exist
+        if not os.path.exists(os.path.dirname(config_path)):
+            config_path = os.path.join(script_dir, 'control_params_tuned.yaml')
+            
+        with open(config_path, 'w') as f:
+            f.write(yaml_content)
+        socketio.emit('export_yaml_result', {'success': True, 'path': config_path})
+    except Exception as e:
+        socketio.emit('export_yaml_result', {'success': False, 'error': str(e)})
 
 
 # ---------- Auto-Tune (Skogestad SIMC, λ-tuning) ----------
@@ -1832,8 +1851,18 @@ function resetAllPID() {
 }
 
 function exportConfig() {
-    let yaml = '# PID gains tuned via dashboard\nmotor_driver:\n  ros__parameters:\n';
-    // Use LF as reference (or show all)
+    const km = document.getElementById('modelKm').value;
+    const tau = document.getElementById('modelTau').value;
+    const tf = document.getElementById('modelTf').innerText;
+
+    let yaml = '# PID gains tuned via dashboard\n';
+    yaml += '# Motor Model\n';
+    yaml += '# JGA25-370 12V 280RPM\n';
+    yaml += `# Km (m/s/PWM): ${km}\n`;
+    yaml += `# τ (s): ${tau}\n`;
+    yaml += `# ${tf}\n`;
+    yaml += 'motor_driver:\n  ros__parameters:\n';
+    
     const gains = {};
     MOTORS.forEach(m => {
         gains[m] = {
@@ -1843,34 +1872,46 @@ function exportConfig() {
         };
     });
 
-    // Check if all same
-    const allSame = MOTORS.every(m =>
-        gains[m].kp === gains.LF.kp &&
-        gains[m].ki === gains.LF.ki &&
-        gains[m].kd === gains.LF.kd
-    );
+    MOTORS.forEach(m => {
+        yaml += `    # ${m}\n`;
+        yaml += `    pid_kp_${m.toLowerCase()}: ${gains[m].kp}\n`;
+        yaml += `    pid_ki_${m.toLowerCase()}: ${gains[m].ki}\n`;
+        yaml += `    pid_kd_${m.toLowerCase()}: ${gains[m].kd}\n`;
+    });
 
-    if (allSame) {
-        yaml += `    pid_kp: ${gains.LF.kp}\n`;
-        yaml += `    pid_ki: ${gains.LF.ki}\n`;
-        yaml += `    pid_kd: ${gains.LF.kd}\n`;
-    } else {
-        MOTORS.forEach(m => {
-            yaml += `    # ${m}\n`;
-            yaml += `    pid_kp_${m.toLowerCase()}: ${gains[m].kp}\n`;
-            yaml += `    pid_ki_${m.toLowerCase()}: ${gains[m].ki}\n`;
-            yaml += `    pid_kd_${m.toLowerCase()}: ${gains[m].kd}\n`;
+    // Copy to clipboard (might fail over HTTP)
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(yaml).then(() => {
+            console.log('YAML copied to clipboard');
+        }).catch(() => {
+            console.log('Could not copy to clipboard');
         });
+    } else {
+        console.log('Clipboard API not available (requires HTTPS)');
     }
 
-    // Copy to clipboard and show
-    navigator.clipboard.writeText(yaml).then(() => {
-        alert('YAML copied to clipboard!\n\n' + yaml);
-    }).catch(() => {
-        prompt('Copy this YAML config:', yaml);
-    });
+    // Download file to local machine
+    const blob = new Blob([yaml], { type: 'text/yaml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'control_params_tuned.yaml';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    // Send to server to save
+    socket.emit('export_yaml', { yaml: yaml });
 }
 
+socket.on('export_yaml_result', (data) => {
+    if (data.success) {
+        alert('YAML config downloaded to your laptop AND saved on the server at:\n' + data.path);
+    } else {
+        alert('YAML config downloaded, but failed to save on the server:\n' + data.error);
+    }
+});
 // ---------- Auto-Tune ----------
 function startAutotune(m) {
     if (!confirm(`Run Ziegler-Nichols auto-tune on ${m}?\n\nThe motor will oscillate for ~10 seconds. Make sure the wheel is free to spin.`))

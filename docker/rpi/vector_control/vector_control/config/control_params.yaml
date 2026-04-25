@@ -17,7 +17,39 @@ motor_driver:
 
     # Maximum wheel linear speed (m/s)
     # 280 RPM × 2π × 0.034m radius / 60 ≈ 1.0 m/s no-load
-    max_motor_speed: 0.5
+    max_motor_speed: 1.0
+
+    # Motor Model (for feed-forward)
+    motor_km: 1.0
+    motor_tau: 0.15
+
+    # PID Gains (tuned via dashboard)
+    # LF
+    pid_kp_lf: 0.37633
+    pid_ki_lf: 6.25631
+    pid_kd_lf: 0.0
+    # LR
+    pid_kp_lr: 0.42333
+    pid_ki_lr: 10.55251
+    pid_kd_lr: 0.0
+    # RF
+    pid_kp_rf: 0.39689
+    pid_ki_rf: 6.59491
+    pid_kd_rf: 0.0
+    # RR
+    pid_kp_rr: 0.65185
+    pid_ki_rr: 8.12396
+    pid_kd_rr: 0.0
+
+    # Minimum PWM to overcome static friction
+    min_pwm: 0.18
+
+    # Encoder direction flips (1 or -1)
+    # Use if a wheel reports negative velocity when moving forward
+    encoder_flip_lf: 1
+    encoder_flip_lr: 1
+    encoder_flip_rf: 1
+    encoder_flip_rr: 1
 
     # Frame IDs
     odom_frame: odom

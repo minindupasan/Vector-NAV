@@ -4,7 +4,7 @@ motor_driver:
   ros__parameters:
     # Diff-drive geometry (must match URDF / diff_drive_controller.yaml)
     wheel_separation: 0.178
-    wheel_radius: 0.0325
+    wheel_radius: 0.034
 
     # Encoder: 11 PPM × ~20.5:1 gearbox = 225 ticks/output rev
     ticks_per_rev: 225
@@ -12,30 +12,37 @@ motor_driver:
     # Control loop rate (Hz)
     control_rate: 50.0
 
-    # Feed-forward + PID: tune via pid_dashboard.py web UI, then copy values here.
-    pid_kp: 0.0
-    pid_ki: 0.0
-    pid_kd: 0.0
-    use_pid: true
-
-    # Minimum PWM to overcome motor static friction (dead zone).
-    min_pwm: 0.25
-
     # Stop motors if no cmd_vel received for this long (seconds)
     cmd_vel_timeout: 0.5
 
     # Maximum wheel linear speed (m/s)
-    # 280 RPM × 2π × 0.0325m radius / 60 ≈ 0.95 m/s no-load
-    max_motor_speed: 0.5
+    # 280 RPM × 2π × 0.034m radius / 60 ≈ 1.0 m/s no-load
+    max_motor_speed: 1.0
 
-    # Smooth acceleration limit (m/s²) — prevents jerky starts/stops
-    max_accel: 2.5
+    # Motor Model (for feed-forward)
+    motor_km: 1.0
+    motor_tau: 0.15
 
-    # EMA filter alpha for encoder velocity feedback (0=max smooth, 1=raw)
-    velocity_filter_alpha: 0.50
+    # PID Gains (tuned via dashboard)
+    # LF
+    pid_kp_lf: 0.37633
+    pid_ki_lf: 6.25631
+    pid_kd_lf: 0.0
+    # LR
+    pid_kp_lr: 0.42333
+    pid_ki_lr: 10.55251
+    pid_kd_lr: 0.0
+    # RF
+    pid_kp_rf: 0.39689
+    pid_ki_rf: 6.59491
+    pid_kd_rf: 0.0
+    # RR
+    pid_kp_rr: 0.65185
+    pid_ki_rr: 8.12396
+    pid_kd_rr: 0.0
 
-    # RPM diagnostic log interval (seconds, 0 to disable)
-    log_interval: 1.0
+    # Minimum PWM to overcome static friction
+    min_pwm: 0.18
 
     # Frame IDs
     odom_frame: odom

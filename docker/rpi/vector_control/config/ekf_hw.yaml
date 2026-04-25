@@ -18,14 +18,10 @@ ekf_filter_node:
     publish_tf: true
 
     # ── Source 0: wheel odometry from motor_driver node ────────────
-    # Only use vx (forward velocity). Do NOT use x,y — they have the
-    # wheel odom's internal yaw baked in, which conflicts with IMU yaw
-    # and causes diagonal/random drift.
-    # The EKF integrates vx + vyaw(IMU) to produce consistent position.
     odom0: /wheel/odom
-    odom0_config: [false, false, false,     # x, y, z  ← OFF (yaw-contaminated)
+    odom0_config: [true,  true,  false,     # x, y, z
                    false, false, false,     # roll, pitch, yaw
-                   true,  false, false,     # vx ← encoder forward velocity
+                   true,  false, false,     # vx, vy, vz
                    false, false, false,     # vroll, vpitch, vyaw
                    false, false, false]     # ax, ay, az
     odom0_differential: false

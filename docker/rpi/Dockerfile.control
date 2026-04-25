@@ -34,6 +34,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-image-transport \
     ros-humble-compressed-image-transport \
     ros-humble-rmw-cyclonedds-cpp \
+    ros-humble-rplidar-ros \
     git \
     && rm -rf /var/lib/apt/lists/*
 

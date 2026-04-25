@@ -98,12 +98,59 @@ class HBridgeMotor:
             self.in1.off(); self.in2.off()
         self.pwm.value = min(abs(speed_frac), 1.0)
 
+    def brake(self):
+        """Active short-brake: both H-bridge inputs HIGH with PWM at 100%."""
+        self.in1.on(); self.in2.on()
+        self.pwm.value = 1.0
+
     def stop(self):
         self.in1.off(); self.in2.off(); self.pwm.value = 0
 
     def close(self):
         self.stop()
         self.pwm.close(); self.in1.close(); self.in2.close()
+
+
+class PIDController:
+    """
+    PI(D) controller with feedforward and conditional-integration anti-windup.
+
+    Anti-windup uses conditional integration: the integrator is paused when
+    the unsaturated output already exceeds the actuator limit AND further
+    integration would push it deeper into saturation.
+    """
+
+    def __init__(self, kp=0.0, ki=0.0, kd=0.0, output_limit=1.0):
+        self.kp = kp
+        self.ki = ki
+        self.kd = kd
+        self.output_limit = output_limit
+        self._integral = 0.0
+        self._prev_error = 0.0
+
+    def compute(self, setpoint, measured, dt, ff=0.0):
+        error = setpoint - measured
+        derivative = (error - self._prev_error) / dt if dt > 0 else 0.0
+
+        p_term = self.kp * error
+        d_term = self.kd * derivative
+        i_term = self.ki * self._integral
+
+        # Conditional integration anti-windup
+        u_pre = ff + p_term + i_term + d_term
+        if abs(u_pre) < self.output_limit or u_pre * error < 0:
+            self._integral += error * dt
+            i_term = self.ki * self._integral
+
+        output = ff + p_term + i_term + d_term
+        output = max(-self.output_limit, min(self.output_limit, output))
+
+        self._prev_error = error
+        return output, error, p_term, i_term, d_term
+
+    def reset(self):
+        self._integral = 0.0
+        self._prev_error = 0.0
 
 
 class QuadratureEncoder:
@@ -170,13 +217,30 @@ class MotorDriverNode(Node):
         self.declare_parameter('ticks_per_rev', 225)
         self.declare_parameter('control_rate', 50.0)
         self.declare_parameter('cmd_vel_timeout', 0.5)
-        self.declare_parameter('max_motor_speed', 0.5)  # m/s at wheel
+        self.declare_parameter('max_motor_speed', 1.0)  # m/s at wheel
         self.declare_parameter('min_pwm', 0.18)  # minimum PWM to overcome static friction
         self.declare_parameter('odom_frame', 'odom')
         self.declare_parameter('base_frame', 'base_link')
         self.declare_parameter('publish_tf', False)  # EKF publishes tf
-        self.declare_parameter('max_accel', 1.0)  # m/s² acceleration limit
+        self.declare_parameter('max_accel', 2.0)  # m/s² acceleration limit
         self.declare_parameter('log_interval', 1.0)  # RPM log interval (s)
+
+        # PID gains (tuned via dashboard)
+        self.declare_parameter('pid_kp_lf', 0.37633)
+        self.declare_parameter('pid_ki_lf', 6.25631)
+        self.declare_parameter('pid_kd_lf', 0.0)
+        self.declare_parameter('pid_kp_lr', 0.42333)
+        self.declare_parameter('pid_ki_lr', 10.55251)
+        self.declare_parameter('pid_kd_lr', 0.0)
+        self.declare_parameter('pid_kp_rf', 0.39689)
+        self.declare_parameter('pid_ki_rf', 6.59491)
+        self.declare_parameter('pid_kd_rf', 0.0)
+        self.declare_parameter('pid_kp_rr', 0.65185)
+        self.declare_parameter('pid_ki_rr', 8.12396)
+        self.declare_parameter('pid_kd_rr', 0.0)
+
+        # EMA Filter alpha
+        self.declare_parameter('ema_alpha', 0.35)
 
         self.wheel_sep = self.get_parameter('wheel_separation').value
         self.wheel_rad = self.get_parameter('wheel_radius').value
@@ -190,6 +254,7 @@ class MotorDriverNode(Node):
         self.publish_tf = self.get_parameter('publish_tf').value
         self.max_accel = self.get_parameter('max_accel').value
         self.log_interval = self.get_parameter('log_interval').value
+        self.ema_alpha = self.get_parameter('ema_alpha').value
 
         # ---------- Hardware: standby pins ----------
         self.stby1 = DigitalOutputDevice(MD1_STBY)
@@ -208,6 +273,29 @@ class MotorDriverNode(Node):
         self.enc_lr = QuadratureEncoder(ENC_LR_A, ENC_LR_B, ticks, self.wheel_rad)
         self.enc_rf = QuadratureEncoder(ENC_RF_A, ENC_RF_B, ticks, self.wheel_rad)
         self.enc_rr = QuadratureEncoder(ENC_RR_A, ENC_RR_B, ticks, self.wheel_rad)
+
+        # ---------- PID Controllers ----------
+        self.pid_lf = PIDController(
+            self.get_parameter('pid_kp_lf').value,
+            self.get_parameter('pid_ki_lf').value,
+            self.get_parameter('pid_kd_lf').value)
+        self.pid_lr = PIDController(
+            self.get_parameter('pid_kp_lr').value,
+            self.get_parameter('pid_ki_lr').value,
+            self.get_parameter('pid_kd_lr').value)
+        self.pid_rf = PIDController(
+            self.get_parameter('pid_kp_rf').value,
+            self.get_parameter('pid_ki_rf').value,
+            self.get_parameter('pid_kd_rf').value)
+        self.pid_rr = PIDController(
+            self.get_parameter('pid_kp_rr').value,
+            self.get_parameter('pid_ki_rr').value,
+            self.get_parameter('pid_kd_rr').value)
+
+        self.pids = [self.pid_lf, self.pid_lr, self.pid_rf, self.pid_rr]
+
+        # ---------- Velocity filtering (EMA) ----------
+        self.v_filtered = [0.0, 0.0, 0.0, 0.0]  # [LF, LR, RF, RR]
 
         # ---------- Joint state tracking (cumulative wheel positions in rad) ----------
         self.joint_names = [
@@ -259,7 +347,7 @@ class MotorDriverNode(Node):
             f'Motor driver started — sep={self.wheel_sep:.3f}m, '
             f'rad={self.wheel_rad:.3f}m, ticks/rev={ticks}, '
             f'max_speed={self.max_speed}m/s, min_pwm={self.min_pwm}, '
-            f'pid={self.use_pid}, rate={self.control_rate}Hz')
+            f'rate={self.control_rate}Hz')
 
     # ------------------------------------------------------------------
     def _cmd_vel_cb(self, msg: Twist):
@@ -300,13 +388,55 @@ class MotorDriverNode(Node):
         v_right_target = self._ramped_linear + (self._ramped_angular * self.wheel_sep / 2.0)
 
         # --- Read encoders using PREVIOUS cycle's actual motor direction ---
-        # The encoder counts magnitude only. Using the actual PWM sign from
-        # the previous cycle (not the target) prevents feedback sign errors
-        # when PID correction flips the motor during transitions.
+        # The encoder counts magnitude only.
         t_lf, d_lf = self.enc_lf.get_and_reset(self._motor_dir[0])
         t_lr, d_lr = self.enc_lr.get_and_reset(self._motor_dir[1])
         t_rf, d_rf = self.enc_rf.get_and_reset(self._motor_dir[2])
         t_rr, d_rr = self.enc_rr.get_and_reset(self._motor_dir[3])
+
+        # Velocity filtering (EMA)
+        raw_vels = [d_lf / dt, d_lr / dt, d_rf / dt, d_rr / dt]
+        for i in range(4):
+            self.v_filtered[i] = self.ema_alpha * raw_vels[i] + (1.0 - self.ema_alpha) * self.v_filtered[i]
+
+        # --- PID Control & Feed-forward ---
+        targets = [v_left_target, v_left_target, v_right_target, v_right_target]
+        motors = [self.motor_lf, self.motor_lr, self.motor_rf, self.motor_rr]
+        pwms = [0.0, 0.0, 0.0, 0.0]
+
+        for i in range(4):
+            target_vel = targets[i]
+            measured_vel = self.v_filtered[i]
+
+            if abs(target_vel) < 0.001:
+                # Position hold via active brake at zero velocity
+                motors[i].brake()
+                self.pids[i].reset()
+                self.v_filtered[i] = 0.0
+                pwms[i] = 1.0  # (indicator)
+            else:
+                # Standard PI(D) + feed-forward
+                ff = target_vel / self.max_speed
+                pwm, error, p, it, d = self.pids[i].compute(target_vel, measured_vel, dt, ff=ff)
+
+                # Stall-only stiction kick
+                if abs(measured_vel) < 0.02 and pwm * target_vel > 0 and abs(pwm) < self.min_pwm:
+                    pwm = math.copysign(self.min_pwm, pwm)
+
+                motors[i].set_speed(pwm)
+                pwms[i] = pwm
+
+                # Update motor direction tracking for next cycle's encoder reads
+                if abs(pwm) > 0.05:
+                    self._motor_dir[i] = 1 if pwm > 0 else -1
+
+        # Odometry: average per side (using filtered velocities for smoother odom)
+        v_left_meas = (self.v_filtered[0] + self.v_filtered[1]) / 2.0
+        v_right_meas = (self.v_filtered[2] + self.v_filtered[3]) / 2.0
+        
+        # Distances per cycle for pose integration
+        d_left = v_left_meas * dt
+        d_right = v_right_meas * dt
 
         # Joint positions for RViz
         # Left wheels: negative rotation = forward (URDF Y-axis, left side)
@@ -316,73 +446,19 @@ class MotorDriverNode(Node):
         self.joint_positions[2] +=  t_rf * self.rad_per_tick  # wheel_fr
         self.joint_positions[3] +=  t_rr * self.rad_per_tick  # wheel_rr
 
-        # Per-motor measured velocities (raw)
-        v_lf_meas = d_lf / dt
-        v_lr_meas = d_lr / dt
-        v_rf_meas = d_rf / dt
-        v_rr_meas = d_rr / dt
-
-        # Odometry: average per side (for pose estimation)
-        d_left = (d_lf + d_lr) / 2.0
-        d_right = (d_rf + d_rr) / 2.0
-        v_left_meas = (v_lf_meas + v_lr_meas) / 2.0
-        v_right_meas = (v_rf_meas + v_rr_meas) / 2.0
-
-        # --- Feed-forward only: cmd_vel → PWM fraction ---
-        pwm_lf = v_left_target  / self.max_speed
-        pwm_lr = v_left_target  / self.max_speed
-        pwm_rf = v_right_target / self.max_speed
-        pwm_rr = v_right_target / self.max_speed
-
-        pwm_lf = max(-1.0, min(1.0, pwm_lf))
-        pwm_lr = max(-1.0, min(1.0, pwm_lr))
-        pwm_rf = max(-1.0, min(1.0, pwm_rf))
-        pwm_rr = max(-1.0, min(1.0, pwm_rr))
-
-        # Dead zone compensation: always enforce min_pwm as the floor
-        # whenever the motor should be moving.  Without this, low-speed
-        # commands produce PWM below the static-friction threshold and
-        # the motor vibrates instead of turning.
-        if self.min_pwm > 0.0:
-            for i, pwm_ref in enumerate([pwm_lf, pwm_lr, pwm_rf, pwm_rr]):
-                if abs(pwm_ref) > 0.01:
-                    boosted = math.copysign(max(abs(pwm_ref), self.min_pwm), pwm_ref)
-                    if i == 0: pwm_lf = boosted
-                    elif i == 1: pwm_lr = boosted
-                    elif i == 2: pwm_rf = boosted
-                    elif i == 3: pwm_rr = boosted
-
-        # Drive motors — each with its own corrected PWM
-        self.motor_lf.set_speed(pwm_lf)
-        self.motor_lr.set_speed(pwm_lr)
-        self.motor_rf.set_speed(pwm_rf)
-        self.motor_rr.set_speed(pwm_rr)
-
-        # Update motor direction tracking for next cycle's encoder reads.
-        # Only update when PWM is non-trivial to avoid noise flipping direction.
-        if abs(pwm_lf) > 0.01:
-            self._motor_dir[0] = 1 if pwm_lf > 0 else -1
-        if abs(pwm_lr) > 0.01:
-            self._motor_dir[1] = 1 if pwm_lr > 0 else -1
-        if abs(pwm_rf) > 0.01:
-            self._motor_dir[2] = 1 if pwm_rf > 0 else -1
-        if abs(pwm_rr) > 0.01:
-            self._motor_dir[3] = 1 if pwm_rr > 0 else -1
-
-        # --- Periodic RPM diagnostic logging ---
+        # --- Periodic diagnostic logging ---
         self._log_accum += dt
         if self._log_accum >= self.log_interval:
             self._log_accum = 0.0
             if abs(self._ramped_linear) > 0.001 or abs(self._ramped_angular) > 0.001:
                 rpm_f = 60.0 / (2.0 * math.pi * self.wheel_rad)
                 self.get_logger().info(
-                    f'RPM  LF:{v_lf_meas*rpm_f:6.1f}  '
-                    f'LR:{v_lr_meas*rpm_f:6.1f}  '
-                    f'RF:{v_rf_meas*rpm_f:6.1f}  '
-                    f'RR:{v_rr_meas*rpm_f:6.1f}  '
+                    f'RPM  LF:{self.v_filtered[0]*rpm_f:6.1f}  '
+                    f'LR:{self.v_filtered[1]*rpm_f:6.1f}  '
+                    f'RF:{self.v_filtered[2]*rpm_f:6.1f}  '
+                    f'RR:{self.v_filtered[3]*rpm_f:6.1f}  '
                     f'| tgt L:{v_left_target*rpm_f:5.1f} R:{v_right_target*rpm_f:5.1f}'
-                    f'| PWM {pwm_lf:+.2f} {pwm_lr:+.2f} '
-                    f'{pwm_rf:+.2f} {pwm_rr:+.2f}')
+                    f'| PWM {pwms[0]:+.2f} {pwms[1]:+.2f} {pwms[2]:+.2f} {pwms[3]:+.2f}')
 
         # --- Forward kinematics: update odometry ---
         d_center = (d_left + d_right) / 2.0
@@ -426,10 +502,10 @@ class MotorDriverNode(Node):
         js.name = self.joint_names
         js.position = list(self.joint_positions)
         js.velocity = [
-            v_lf_meas / self.wheel_rad,   # wheel_fl rad/s
-            v_lr_meas / self.wheel_rad,   # wheel_rl
-            v_rf_meas / self.wheel_rad,   # wheel_fr
-            v_rr_meas / self.wheel_rad,   # wheel_rr
+            self.v_filtered[0] / self.wheel_rad,   # wheel_fl rad/s
+            self.v_filtered[1] / self.wheel_rad,   # wheel_rl
+            self.v_filtered[2] / self.wheel_rad,   # wheel_fr
+            self.v_filtered[3] / self.wheel_rad,   # wheel_rr
         ]
         self.pub_joint.publish(js)
 
