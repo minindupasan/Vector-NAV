@@ -28,6 +28,8 @@ setup(
         'console_scripts': [
             'motor_driver = vector_control.motor_driver_node:main',
             'imu_publisher = vector_control.imu_node:main',
+            'pid_tune_lf = vector_control.pid_tune_lf:main',
+            'pid_autotune_lf = vector_control.pid_autotune_lf:main',
         ],
     },
 )

@@ -150,31 +150,6 @@ class QuadratureEncoder:
         self._phase_b.close()
 
 
-class PIDController:
-    """Simple PID with anti-windup clamp."""
-
-    def __init__(self, kp, ki, kd, output_limit=1.0):
-        self.kp = kp
-        self.ki = ki
-        self.kd = kd
-        self.output_limit = output_limit
-        self._integral = 0.0
-        self._prev_error = 0.0
-
-    def compute(self, setpoint, measured, dt):
-        error = setpoint - measured
-        self._integral += error * dt
-        # Anti-windup
-        self._integral = max(-self.output_limit, min(self.output_limit, self._integral))
-        derivative = (error - self._prev_error) / dt if dt > 0 else 0.0
-        self._prev_error = error
-        output = self.kp * error + self.ki * self._integral + self.kd * derivative
-        return max(-self.output_limit, min(self.output_limit, output))
-
-    def reset(self):
-        self._integral = 0.0
-        self._prev_error = 0.0
-
 
 def yaw_to_quaternion(yaw):
     """Convert yaw angle (rad) to geometry_msgs Quaternion."""
@@ -196,16 +171,11 @@ class MotorDriverNode(Node):
         self.declare_parameter('control_rate', 50.0)
         self.declare_parameter('cmd_vel_timeout', 0.5)
         self.declare_parameter('max_motor_speed', 0.5)  # m/s at wheel
-        self.declare_parameter('pid_kp', 0.15)
-        self.declare_parameter('pid_ki', 0.05)
-        self.declare_parameter('pid_kd', 0.0)
-        self.declare_parameter('use_pid', True)
         self.declare_parameter('min_pwm', 0.18)  # minimum PWM to overcome static friction
         self.declare_parameter('odom_frame', 'odom')
         self.declare_parameter('base_frame', 'base_link')
         self.declare_parameter('publish_tf', False)  # EKF publishes tf
         self.declare_parameter('max_accel', 1.0)  # m/s² acceleration limit
-        self.declare_parameter('velocity_filter_alpha', 0.35)  # EMA filter
         self.declare_parameter('log_interval', 1.0)  # RPM log interval (s)
 
         self.wheel_sep = self.get_parameter('wheel_separation').value
@@ -214,16 +184,11 @@ class MotorDriverNode(Node):
         self.control_rate = self.get_parameter('control_rate').value
         self.cmd_timeout = self.get_parameter('cmd_vel_timeout').value
         self.max_speed = self.get_parameter('max_motor_speed').value
-        kp = self.get_parameter('pid_kp').value
-        ki = self.get_parameter('pid_ki').value
-        kd = self.get_parameter('pid_kd').value
-        self.use_pid = self.get_parameter('use_pid').value
         self.min_pwm = self.get_parameter('min_pwm').value
         self.odom_frame = self.get_parameter('odom_frame').value
         self.base_frame = self.get_parameter('base_frame').value
         self.publish_tf = self.get_parameter('publish_tf').value
         self.max_accel = self.get_parameter('max_accel').value
-        self.ema_alpha = self.get_parameter('velocity_filter_alpha').value
         self.log_interval = self.get_parameter('log_interval').value
 
         # ---------- Hardware: standby pins ----------
@@ -243,15 +208,6 @@ class MotorDriverNode(Node):
         self.enc_lr = QuadratureEncoder(ENC_LR_A, ENC_LR_B, ticks, self.wheel_rad)
         self.enc_rf = QuadratureEncoder(ENC_RF_A, ENC_RF_B, ticks, self.wheel_rad)
         self.enc_rr = QuadratureEncoder(ENC_RR_A, ENC_RR_B, ticks, self.wheel_rad)
-
-        # ---------- PID controllers (one per motor) ----------
-        # Each motor gets its own PID so it individually tracks the side
-        # target velocity, compensating for motor-to-motor variation.
-        if self.use_pid:
-            self.pid_lf = PIDController(kp, ki, kd)
-            self.pid_lr = PIDController(kp, ki, kd)
-            self.pid_rf = PIDController(kp, ki, kd)
-            self.pid_rr = PIDController(kp, ki, kd)
 
         # ---------- Joint state tracking (cumulative wheel positions in rad) ----------
         self.joint_names = [
@@ -275,16 +231,10 @@ class MotorDriverNode(Node):
         # Encoder reads magnitude only; direction comes from the actual PWM
         # sign sent to the motor on the PREVIOUS cycle (not the target).
         self._motor_dir = [1, 1, 1, 1]  # [LF, LR, RF, RR]
-        # Track target direction per side to reset PID on direction change
-        self._target_dir_left = 0
-        self._target_dir_right = 0
 
         # Velocity ramping state (smooth acceleration/deceleration)
         self._ramped_linear = 0.0
         self._ramped_angular = 0.0
-
-        # EMA-filtered encoder velocities for PID feedback
-        self._v_filt = [0.0, 0.0, 0.0, 0.0]  # [LF, LR, RF, RR]
 
         # RPM diagnostic logging
         self._log_accum = 0.0
@@ -372,76 +322,30 @@ class MotorDriverNode(Node):
         v_rf_meas = d_rf / dt
         v_rr_meas = d_rr / dt
 
-        # EMA filter: smooth encoder quantization noise for PID feedback
-        a = self.ema_alpha
-        self._v_filt[0] = a * v_lf_meas + (1.0 - a) * self._v_filt[0]
-        self._v_filt[1] = a * v_lr_meas + (1.0 - a) * self._v_filt[1]
-        self._v_filt[2] = a * v_rf_meas + (1.0 - a) * self._v_filt[2]
-        self._v_filt[3] = a * v_rr_meas + (1.0 - a) * self._v_filt[3]
-
         # Odometry: average per side (for pose estimation)
         d_left = (d_lf + d_lr) / 2.0
         d_right = (d_rf + d_rr) / 2.0
         v_left_meas = (v_lf_meas + v_lr_meas) / 2.0
         v_right_meas = (v_rf_meas + v_rr_meas) / 2.0
 
-        # --- Reset PID on direction change ---
-        # When a side's target direction flips (e.g. forward → rotation),
-        # the integral term would fight the new direction. Reset it.
-        new_dir_left = 0 if abs(v_left_target) < 0.001 else (1 if v_left_target > 0 else -1)
-        new_dir_right = 0 if abs(v_right_target) < 0.001 else (1 if v_right_target > 0 else -1)
-
-        if self.use_pid:
-            if new_dir_left != 0 and new_dir_left != self._target_dir_left:
-                self.pid_lf.reset()
-                self.pid_lr.reset()
-            if new_dir_right != 0 and new_dir_right != self._target_dir_right:
-                self.pid_rf.reset()
-                self.pid_rr.reset()
-        self._target_dir_left = new_dir_left
-        self._target_dir_right = new_dir_right
-
-        # --- Feed-forward + per-motor PID correction ---
-        # Each motor gets its own PID so wheels on the same side stay
-        # matched despite motor-to-motor variation.
-        ff_left = v_left_target / self.max_speed
-        ff_right = v_right_target / self.max_speed
-
-        if self.use_pid:
-            if new_dir_left == 0 and new_dir_right == 0:
-                # Dead stop — reset all PIDs to avoid windup
-                pwm_lf = 0.0
-                pwm_lr = 0.0
-                pwm_rf = 0.0
-                pwm_rr = 0.0
-                self.pid_lf.reset()
-                self.pid_lr.reset()
-                self.pid_rf.reset()
-                self.pid_rr.reset()
-            else:
-                pwm_lf = ff_left + self.pid_lf.compute(v_left_target, self._v_filt[0], dt)
-                pwm_lr = ff_left + self.pid_lr.compute(v_left_target, self._v_filt[1], dt)
-                pwm_rf = ff_right + self.pid_rf.compute(v_right_target, self._v_filt[2], dt)
-                pwm_rr = ff_right + self.pid_rr.compute(v_right_target, self._v_filt[3], dt)
-        else:
-            pwm_lf = ff_left
-            pwm_lr = ff_left
-            pwm_rf = ff_right
-            pwm_rr = ff_right
+        # --- Feed-forward only: cmd_vel → PWM fraction ---
+        pwm_lf = v_left_target  / self.max_speed
+        pwm_lr = v_left_target  / self.max_speed
+        pwm_rf = v_right_target / self.max_speed
+        pwm_rr = v_right_target / self.max_speed
 
         pwm_lf = max(-1.0, min(1.0, pwm_lf))
         pwm_lr = max(-1.0, min(1.0, pwm_lr))
         pwm_rf = max(-1.0, min(1.0, pwm_rf))
         pwm_rr = max(-1.0, min(1.0, pwm_rr))
 
-        # Dead zone compensation: apply min_pwm ONLY to overcome static
-        # friction when a motor is stopped.  Once the wheel is spinning
-        # (encoder reports movement), let the PID set any PWM — even below
-        # min_pwm — so it can slow down a motor that is naturally faster.
+        # Dead zone compensation: always enforce min_pwm as the floor
+        # whenever the motor should be moving.  Without this, low-speed
+        # commands produce PWM below the static-friction threshold and
+        # the motor vibrates instead of turning.
         if self.min_pwm > 0.0:
             for i, pwm_ref in enumerate([pwm_lf, pwm_lr, pwm_rf, pwm_rr]):
-                motor_spinning = abs(self._v_filt[i]) > 0.005
-                if abs(pwm_ref) > 0.01 and not motor_spinning:
+                if abs(pwm_ref) > 0.01:
                     boosted = math.copysign(max(abs(pwm_ref), self.min_pwm), pwm_ref)
                     if i == 0: pwm_lf = boosted
                     elif i == 1: pwm_lr = boosted
@@ -472,10 +376,10 @@ class MotorDriverNode(Node):
             if abs(self._ramped_linear) > 0.001 or abs(self._ramped_angular) > 0.001:
                 rpm_f = 60.0 / (2.0 * math.pi * self.wheel_rad)
                 self.get_logger().info(
-                    f'RPM  LF:{self._v_filt[0]*rpm_f:6.1f}  '
-                    f'LR:{self._v_filt[1]*rpm_f:6.1f}  '
-                    f'RF:{self._v_filt[2]*rpm_f:6.1f}  '
-                    f'RR:{self._v_filt[3]*rpm_f:6.1f}  '
+                    f'RPM  LF:{v_lf_meas*rpm_f:6.1f}  '
+                    f'LR:{v_lr_meas*rpm_f:6.1f}  '
+                    f'RF:{v_rf_meas*rpm_f:6.1f}  '
+                    f'RR:{v_rr_meas*rpm_f:6.1f}  '
                     f'| tgt L:{v_left_target*rpm_f:5.1f} R:{v_right_target*rpm_f:5.1f}'
                     f'| PWM {pwm_lf:+.2f} {pwm_lr:+.2f} '
                     f'{pwm_rf:+.2f} {pwm_rr:+.2f}')

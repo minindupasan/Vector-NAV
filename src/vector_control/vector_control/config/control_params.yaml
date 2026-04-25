@@ -12,12 +12,6 @@ motor_driver:
     # Control loop rate (Hz)
     control_rate: 50.0
 
-    # Feed-forward + PID: conservative gains, PID only corrects error
-    pid_kp: 0.15
-    pid_ki: 0.05
-    pid_kd: 0.0
-    use_pid: true
-
     # Stop motors if no cmd_vel received for this long (seconds)
     cmd_vel_timeout: 0.5
 
