@@ -1,8 +1,9 @@
 # ============================================================================
 # VECTOR NAV — Raspberry Pi 5 Docker Compose
 #
-# Grants access to all hardware via /dev volume mount + privileged mode:
-#   GPIO, I2C, SPI, Camera, Serial, etc.
+# Two containers sharing ROS2 topics via DDS over host network:
+#   vector-control: motor control, IMU, encoders, EKF
+#   vector-camera:  RPi Camera Module 3 stream as ROS2 topic
 #
 # Usage:
 #   cd ~/vector_nav/docker/rpi
@@ -14,13 +15,13 @@ services:
     image: vector-control:latest
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.control
     container_name: vector-control
 
     # Host network so DDS multicast works between Pi and Jetson
     network_mode: host
 
-    # Full hardware access (GPIO, I2C, SPI, camera, serial)
+    # Full hardware access (GPIO, I2C, SPI, serial)
     privileged: true
 
     environment:
@@ -30,14 +31,11 @@ services:
       - GPIOZERO_PIN_FACTORY=lgpio
 
     volumes:
-      # ── /dev: all device nodes (GPIO chips, I2C, SPI, video, serial) ──
+      # ── /dev: all device nodes (GPIO chips, I2C, SPI, serial) ──
       - /dev:/dev
 
       # ── Live source mount for development ──
       - ./vector_control:/ros2_ws/src/vector_control:ro
-
-      # ── Camera (libcamera runtime socket) ──
-      - /run/libcamera:/run/libcamera
 
       # ── Firmware / device-tree ──
       - /lib/firmware:/lib/firmware:ro

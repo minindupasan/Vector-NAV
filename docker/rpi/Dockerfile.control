@@ -1,0 +1,64 @@
+# ============================================================================
+# VECTOR CONTROL — Raspberry Pi 5 ROS2 Humble container
+#
+# Provides: motor control (GPIO), IMU (I2C), encoder odometry,
+#           Madgwick-filtered IMU, EKF fusion.
+#
+# Build:  docker build -f docker/rpi/Dockerfile.control -t vector-control docker/rpi/
+# ============================================================================
+FROM ros:humble-ros-base
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV ROS_DOMAIN_ID=0
+SHELL ["/bin/bash", "-c"]
+
+# ── System dependencies ─────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Build tools
+    python3-pip \
+    python3-colcon-common-extensions \
+    python3-rosdep \
+    # I2C / GPIO kernel interface
+    i2c-tools \
+    # Useful debug tools
+    iproute2 \
+    iputils-ping \
+    nano \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── ROS2 packages ───────────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-humble-robot-localization \
+    ros-humble-tf2-ros \
+    ros-humble-tf2-tools \
+    ros-humble-image-transport \
+    ros-humble-compressed-image-transport \
+    ros-humble-rmw-cyclonedds-cpp \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Python packages (GPIO, IMU) ────────────────────────────────────────────
+RUN pip3 install --no-cache-dir \
+    gpiozero \
+    lgpio \
+    smbus2 \
+    numpy
+
+# ── Workspace setup ─────────────────────────────────────────────────────────
+ENV VECTOR_WS=/ros2_ws
+RUN mkdir -p ${VECTOR_WS}/src
+WORKDIR ${VECTOR_WS}
+
+# Copy vector_control package
+COPY vector_control ${VECTOR_WS}/src/vector_control
+
+# Build packages
+RUN source /opt/ros/humble/setup.bash && \
+    colcon build --packages-select vector_control --symlink-install
+
+# ── Entrypoint ──────────────────────────────────────────────────────────────
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["ros2", "launch", "vector_control", "control.launch.py"]
