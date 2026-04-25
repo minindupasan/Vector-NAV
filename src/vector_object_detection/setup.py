@@ -2,7 +2,7 @@ from setuptools import setup
 import os
 from glob import glob
 
-package_name = 'yolo_detector'
+package_name = 'vector_object_detection'
 
 setup(
     name=package_name,
@@ -24,7 +24,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'detector = yolo_detector.detector_node:main',
+            'detector = vector_object_detection.detector_node:main',
         ],
     },
 )
