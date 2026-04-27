@@ -1,9 +1,10 @@
-### Nav2 parameters for VECTOR NAV
+### Nav2 parameters for VECTOR NAV — real hardware
 # Small 4-wheel diff-drive robot: 0.178m track, 0.034m wheel radius
+# All topics come from Pi via CycloneDDS
 
 bt_navigator:
   ros__parameters:
-    use_sim_time: true
+    use_sim_time: false
     global_frame: map
     robot_base_frame: base_link
     odom_topic: /odometry/filtered
@@ -17,70 +18,73 @@ bt_navigator:
 
 controller_server:
   ros__parameters:
-    use_sim_time: true
-    controller_frequency: 10.0
-    min_x_velocity_threshold: 0.001
+    use_sim_time: false
+    controller_frequency: 20.0
+    # Hardware floors of the Pi motor_driver (sub-floor commands get
+    # snapped UP, so the controller must zero anything below these).
+    min_x_velocity_threshold: 0.35
     min_y_velocity_threshold: 0.5
-    min_theta_velocity_threshold: 0.001
+    min_theta_velocity_threshold: 2.25
     progress_checker_plugins: ["progress_checker"]
     goal_checker_plugins: ["general_goal_checker"]
     controller_plugins: ["FollowPath"]
 
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.10
+      required_movement_radius: 0.5
       movement_time_allowance: 10.0
 
     general_goal_checker:
       stateful: true
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.15
-      yaw_goal_tolerance: 0.25
+      xy_goal_tolerance: 0.10
+      yaw_goal_tolerance: 0.15
 
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
       debug_trajectory_details: true
       min_vel_x: 0.0
       min_vel_y: 0.0
-      max_vel_x: 0.4
+      max_vel_x: 0.5
       max_vel_y: 0.0
       max_vel_theta: 1.5
-      min_speed_xy: 0.0
-      max_speed_xy: 0.4
-      min_speed_theta: 0.2
+      # min_speed_* must match the Pi motor floor.
+      min_speed_xy: 0.35
+      max_speed_xy: 0.5
+      min_speed_theta: 2.25
       acc_lim_x: 1.0
       acc_lim_y: 0.0
-      acc_lim_theta: 1.5
+      acc_lim_theta: 2.0
       decel_lim_x: -1.0
       decel_lim_y: 0.0
-      decel_lim_theta: -1.5
-      vx_samples: 15
-      vy_samples: 1
-      vtheta_samples: 15
+      decel_lim_theta: -2.0
+      vx_samples: 20
+      vy_samples: 5
+      vtheta_samples: 20
       sim_time: 1.5
       linear_granularity: 0.05
       angular_granularity: 0.025
       transform_tolerance: 0.2
-      xy_goal_tolerance: 0.15
-      trans_stopped_velocity: 0.05
+      xy_goal_tolerance: 0.10
+      trans_stopped_velocity: 0.25
       short_circuit_trajectory_evaluation: true
       stateful: true
       critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
-      BaseObstacle.scale: 2.0
+      BaseObstacle.scale: 0.02
       PathAlign.scale: 32.0
       PathAlign.forward_point_distance: 0.1
       GoalAlign.scale: 24.0
       GoalAlign.forward_point_distance: 0.1
       PathDist.scale: 32.0
       GoalDist.scale: 24.0
-      RotateToGoal.scale: 10.0
+      RotateToGoal.scale: 32.0
       RotateToGoal.slowing_factor: 5.0
-      RotateToGoal.lookahead_time: 0.1
+      RotateToGoal.lookahead_time: -1.0
 
 planner_server:
   ros__parameters:
-    use_sim_time: true
-    expected_planner_frequency: 1.0
+    use_sim_time: false
+    expected_planner_frequency: 20.0
     planner_plugins: ["GridBased"]
     GridBased:
       plugin: "nav2_navfn_planner/NavfnPlanner"
@@ -90,7 +94,7 @@ planner_server:
 
 behavior_server:
   ros__parameters:
-    use_sim_time: true
+    use_sim_time: false
     costmap_topic: local_costmap/costmap_raw
     footprint_topic: local_costmap/published_footprint
     cycle_frequency: 10.0
@@ -107,14 +111,16 @@ behavior_server:
     robot_base_frame: base_link
     transform_tolerance: 0.1
     simulate_ahead_time: 2.0
-    max_rotational_vel: 2.0
-    min_rotational_vel: 0.1
-    rotational_acc_lim: 1.5
+    # Recovery rotational vels must respect the Pi motor floor (2.25 rad/s):
+    # any value below it would be snapped UP by the motor driver.
+    max_rotational_vel: 2.5
+    min_rotational_vel: 2.25
+    rotational_acc_lim: 2.0
 
 local_costmap:
   local_costmap:
     ros__parameters:
-      use_sim_time: true
+      use_sim_time: false
       update_frequency: 5.0
       publish_frequency: 2.0
       global_frame: odom
@@ -123,7 +129,6 @@ local_costmap:
       width: 3
       height: 3
       resolution: 0.05
-      # Robot footprint (rectangle slightly larger than chassis)
       robot_radius: 0.15
       plugins: ["obstacle_layer", "inflation_layer"]
       obstacle_layer:
@@ -139,17 +144,17 @@ local_costmap:
           raytrace_max_range: 12.0
           raytrace_min_range: 0.0
           obstacle_max_range: 10.0
-          obstacle_min_range: 0.2
+          obstacle_min_range: 0.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 4.0
-        inflation_radius: 0.18
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.35
       always_send_full_costmap: true
 
 global_costmap:
   global_costmap:
     ros__parameters:
-      use_sim_time: true
+      use_sim_time: false
       update_frequency: 1.0
       publish_frequency: 1.0
       global_frame: map
@@ -174,21 +179,21 @@ global_costmap:
           raytrace_max_range: 12.0
           raytrace_min_range: 0.0
           obstacle_max_range: 10.0
-          obstacle_min_range: 0.2
+          obstacle_min_range: 0.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 4.0
-        inflation_radius: 0.18
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.35
       always_send_full_costmap: true
 
 map_server:
   ros__parameters:
-    use_sim_time: true
-    yaml_filename: ""
+    use_sim_time: false
+    yaml_filename: "/home/admin/vector_nav/maps/custom_map.yaml"
 
 map_saver:
   ros__parameters:
-    use_sim_time: true
+    use_sim_time: false
     save_map_timeout: 5.0
     free_thresh_default: 0.25
     occupied_thresh_default: 0.65

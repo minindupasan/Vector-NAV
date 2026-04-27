@@ -1,10 +1,11 @@
-"""Navigation launch for VECTOR NAV.
+"""SLAM launch for VECTOR NAV.
 
-Starts simulation + Nav2 with a pre-built map for autonomous navigation.
-Use RViz2 "Nav2 Goal" tool to send goals.
+Starts the simulation + SLAM Toolbox for mapping.
+Drive the robot around with teleop to build a map, then save it:
+  ros2 run nav2_map_server map_saver_cli -f ~/vector_nav/maps/my_map
 
 Usage:
-  ros2 launch vector_ros nav.launch.py map:=/path/to/map.yaml
+  ros2 launch vector_navigation slam.launch.py
 """
 
 import os
@@ -22,14 +23,14 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
-    pkg = get_package_share_directory('vector_ros')
+    pkg = get_package_share_directory('vector_navigation')
     ros_gz_sim_pkg = get_package_share_directory('ros_gz_sim')
 
     os.environ['RMW_IMPLEMENTATION'] = 'rmw_cyclonedds_cpp'
     os.environ.setdefault('__EGL_VENDOR_LIBRARY_DIRS', '/usr/share/glvnd/egl_vendor.d/')
     os.environ.setdefault('__GLX_VENDOR_LIBRARY_NAME', 'nvidia')
 
-    pkg_share_parent = os.path.join(get_package_prefix('vector_ros'), 'share')
+    pkg_share_parent = os.path.join(get_package_prefix('vector_navigation'), 'share')
     models_dir = os.path.join(pkg, 'models')
     resource_paths = os.pathsep.join([pkg_share_parent, models_dir])
     if 'IGN_GAZEBO_RESOURCE_PATH' in os.environ:
@@ -41,8 +42,6 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time', default='true')
     x_pose = LaunchConfiguration('x_pose', default='0.0')
     y_pose = LaunchConfiguration('y_pose', default='0.0')
-    map_yaml = LaunchConfiguration('map')
-    nav2_config = os.path.join(pkg, 'config', 'nav2_params.yaml')
 
     robot_description = ParameterValue(Command(['xacro ', xacro_file]), value_type=str)
 
@@ -111,107 +110,23 @@ def generate_launch_description():
         ],
     )
 
-    # ── EKF ────────────────────────────────────────────────────────
-    ekf_config = os.path.join(pkg, 'config', 'ekf.yaml')
-    ekf_node = Node(
-        package='robot_localization',
-        executable='ekf_node',
-        name='ekf_filter_node',
+    # ── SLAM Toolbox ───────────────────────────────────────────────
+    # TurtleBot3 approach: no EKF needed.
+    # diff_drive_controller publishes odom→base_link directly.
+    # SLAM Toolbox publishes map→odom (corrects drift via scan matching).
+    slam_config = os.path.join(pkg, 'config', 'slam_toolbox.yaml')
+    slam_node = Node(
+        package='slam_toolbox',
+        executable='async_slam_toolbox_node',
+        name='slam_toolbox',
         output='screen',
-        parameters=[ekf_config, {'use_sim_time': use_sim_time}],
-    )
-
-    # ── Nav2 ───────────────────────────────────────────────────────
-    nav2_lifecycle_nodes = [
-        'controller_server',
-        'planner_server',
-        'behavior_server',
-        'bt_navigator',
-    ]
-
-    nav2_map_server = Node(
-        package='nav2_map_server',
-        executable='map_server',
-        name='map_server',
-        output='screen',
-        parameters=[nav2_config, {
-            'use_sim_time': use_sim_time,
-            'yaml_filename': map_yaml,
-        }],
-    )
-
-    nav2_amcl = Node(
-        package='nav2_amcl',
-        executable='amcl',
-        name='amcl',
-        output='screen',
-        parameters=[{
-            'use_sim_time': use_sim_time,
-            'base_frame_id': 'base_link',
-            'odom_frame_id': 'odom',
-            'global_frame_id': 'map',
-            'scan_topic': '/scan',
-            'robot_model_type': 'nav2_amcl::DifferentialMotionModel',
-            'set_initial_pose': True,
-            'initial_pose_x': x_pose,
-            'initial_pose_y': y_pose,
-            'initial_pose_yaw': 0.0,
-            'max_particles': 2000,
-            'min_particles': 500,
-        }],
-    )
-
-    nav2_controller = Node(
-        package='nav2_controller',
-        executable='controller_server',
-        name='controller_server',
-        output='screen',
-        parameters=[nav2_config, {'use_sim_time': use_sim_time}],
-        remappings=[('cmd_vel', '/diff_drive_controller/cmd_vel_unstamped')],
-    )
-
-    nav2_planner = Node(
-        package='nav2_planner',
-        executable='planner_server',
-        name='planner_server',
-        output='screen',
-        parameters=[nav2_config, {'use_sim_time': use_sim_time}],
-    )
-
-    nav2_behaviors = Node(
-        package='nav2_behaviors',
-        executable='behavior_server',
-        name='behavior_server',
-        output='screen',
-        parameters=[nav2_config, {'use_sim_time': use_sim_time}],
-        remappings=[('cmd_vel', '/diff_drive_controller/cmd_vel_unstamped')],
-    )
-
-    nav2_bt = Node(
-        package='nav2_bt_navigator',
-        executable='bt_navigator',
-        name='bt_navigator',
-        output='screen',
-        parameters=[nav2_config, {'use_sim_time': use_sim_time}],
-    )
-
-    nav2_lifecycle = Node(
-        package='nav2_lifecycle_manager',
-        executable='lifecycle_manager',
-        name='lifecycle_manager_navigation',
-        output='screen',
-        parameters=[{
-            'use_sim_time': use_sim_time,
-            'autostart': True,
-            'node_names': ['map_server', 'amcl'] + nav2_lifecycle_nodes,
-        }],
+        parameters=[slam_config, {'use_sim_time': use_sim_time}],
     )
 
     return LaunchDescription([
         DeclareLaunchArgument('use_sim_time', default_value='true'),
         DeclareLaunchArgument('x_pose', default_value='0.0'),
         DeclareLaunchArgument('y_pose', default_value='0.0'),
-        DeclareLaunchArgument('map', description='Path to map yaml file'),
 
         robot_state_publisher,
         TimerAction(period=2.0, actions=[gz_sim]),
@@ -219,14 +134,5 @@ def generate_launch_description():
         sensor_bridge,
         TimerAction(period=12.0, actions=[spawn_jsb]),
         TimerAction(period=15.0, actions=[spawn_ddc]),
-        TimerAction(period=18.0, actions=[ekf_node]),
-        TimerAction(period=20.0, actions=[
-            nav2_map_server,
-            nav2_amcl,
-            nav2_controller,
-            nav2_planner,
-            nav2_behaviors,
-            nav2_bt,
-            nav2_lifecycle,
-        ]),
+        TimerAction(period=18.0, actions=[slam_node]),
     ])

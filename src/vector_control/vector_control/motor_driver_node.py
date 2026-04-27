@@ -226,6 +226,7 @@ class MotorDriverNode(Node):
         self.declare_parameter('publish_tf', False)  # EKF publishes tf
         self.declare_parameter('max_accel', 2.0)  # m/s² acceleration limit
         self.declare_parameter('log_interval', 1.0)  # RPM log interval (s)
+        self.declare_parameter('rear_rotation_scale', 1.0)  # scale rear wheel targets during rotation (0.7–1.0)
 
         # PID gains (tuned via dashboard)
         self.declare_parameter('pid_kp_lf', 0.37633)
@@ -265,6 +266,7 @@ class MotorDriverNode(Node):
         self.max_accel = self.get_parameter('max_accel').value
         self.log_interval = self.get_parameter('log_interval').value
         self.ema_alpha = self.get_parameter('ema_alpha').value
+        self.rear_rotation_scale = self.get_parameter('rear_rotation_scale').value
 
         self.enc_flips = [
             self.get_parameter('encoder_flip_lf').value,
@@ -426,7 +428,15 @@ class MotorDriverNode(Node):
             self.v_filtered[i] = self.ema_alpha * raw_vels[i] + (1.0 - self.ema_alpha) * self.v_filtered[i]
 
         # --- PID Control & Feed-forward ---
-        targets = [v_left_target, v_left_target, v_right_target, v_right_target]
+        # Reduce rear wheel targets during rotation to prevent slip caused by
+        # lower normal force on the rear axle. Scale blends smoothly between
+        # pure linear (no reduction) and pure rotation (full reduction).
+        rotation_ratio = abs(self._ramped_angular) / (
+            abs(self._ramped_angular) + abs(self._ramped_linear) / (self.wheel_rad + 1e-9) + 1e-9)
+        rear_scale = 1.0 - (1.0 - self.rear_rotation_scale) * rotation_ratio
+
+        targets = [v_left_target, v_left_target * rear_scale,
+                   v_right_target, v_right_target * rear_scale]
         motors = [self.motor_lf, self.motor_lr, self.motor_rf, self.motor_rr]
         pwms = [0.0, 0.0, 0.0, 0.0]
 

@@ -15,6 +15,12 @@ motor_driver:
     # Stop motors if no cmd_vel received for this long (seconds)
     cmd_vel_timeout: 0.5
 
+    # Acceleration ramp limit (m/s²). Lower = smoother starts/stops.
+    max_accel: 0.6
+
+    # EMA filter weight on new velocity readings (0–1). Lower = smoother.
+    ema_alpha: 0.18
+
     # Maximum wheel linear speed (m/s)
     # 280 RPM × 2π × 0.034m radius / 60 ≈ 1.0 m/s no-load
     max_motor_speed: 1.0
@@ -48,6 +54,11 @@ motor_driver:
     # Minimum PWM to overcome static friction
     min_pwm: 0.18
 
+    # Rear wheel speed scale during rotation (0.7–1.0).
+    # Reduces rear wheel targets when rotating to prevent slip from lower
+    # normal force on the rear axle. Start at 0.85 and tune down if slip persists.
+    rear_rotation_scale: 1.0
+
     # Encoder direction flips (1 or -1)
     # Use if a wheel reports negative velocity when moving forward
     encoder_flip_lf: 1
@@ -65,7 +76,7 @@ motor_driver:
 imu_publisher:
   ros__parameters:
     i2c_bus: 1
-    publish_rate: 100.0
+    publish_rate: 50.0
 
     # MPU6500 ranges
     accel_range: 2      # 2, 4, 8, or 16 g

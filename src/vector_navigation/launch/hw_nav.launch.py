@@ -12,7 +12,7 @@ Nav2 controller publishes /cmd_vel → Pi's motor_driver subscribes it.
 No Gazebo, no ros2_control, no sensor bridges.
 
 Usage:
-  ros2 launch vector_ros hw_nav.launch.py map:=/path/to/map.yaml
+  ros2 launch vector_navigation hw_nav.launch.py map:=/path/to/map.yaml
 """
 
 import os
@@ -25,7 +25,7 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
-    pkg = get_package_share_directory('vector_ros')
+    pkg = get_package_share_directory('vector_navigation')
 
     os.environ['RMW_IMPLEMENTATION'] = 'rmw_cyclonedds_cpp'
 

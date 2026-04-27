@@ -11,7 +11,7 @@ the Raspberry Pi via CycloneDDS.  The Pi's EKF publishes odom→base_link TF.
 No Gazebo, no ros2_control, no sensor bridges.
 
 Usage:
-  ros2 launch vector_ros hw_slam.launch.py
+  ros2 launch vector_navigation hw_slam.launch.py
   # Drive the robot with teleop to build a map, then save:
   ros2 run nav2_map_server map_saver_cli -f ~/vector_nav/maps/my_map
 """
@@ -26,7 +26,7 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
-    pkg = get_package_share_directory('vector_ros')
+    pkg = get_package_share_directory('vector_navigation')
 
     os.environ['RMW_IMPLEMENTATION'] = 'rmw_cyclonedds_cpp'
 

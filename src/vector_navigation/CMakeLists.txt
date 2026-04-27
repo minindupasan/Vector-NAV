@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(vector_ros)
+project(vector_navigation)
 
 find_package(ament_cmake REQUIRED)
 

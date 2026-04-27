@@ -6,7 +6,7 @@ discovered automatically via DDS multicast — just ensure both
 machines are on the same network.
 
 Usage (on laptop):
-  ros2 launch vector_ros viz.launch.py
+  ros2 launch vector_navigation viz.launch.py
 """
 
 from launch import LaunchDescription
@@ -18,7 +18,7 @@ import os
 
 
 def generate_launch_description():
-    pkg = get_package_share_directory('vector_ros')
+    pkg = get_package_share_directory('vector_navigation')
     rviz_config = os.path.join(pkg, 'rviz', 'vector.rviz')
 
     use_sim_time = LaunchConfiguration('use_sim_time', default='true')

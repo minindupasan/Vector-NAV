@@ -29,34 +29,40 @@ import tf2_ros
 
 import glob as _glob
 import os
+import lgpio as _lgpio_raw
 import gpiozero
 from gpiozero import PWMOutputDevice, DigitalOutputDevice, Button
 from gpiozero.pins.lgpio import LGPIOFactory
 
-# Auto-detect the correct gpiochip.
-# On Pi 5: /dev/gpiochip4 → gpiochip0 (symlink). In Docker the symlink
-# may not exist, so we scan all available chips.
-_factory_set = False
+# LGPIOFactory.__init__ ignores the chip argument and auto-detects based on
+# Pi hardware revision — which picks the wrong chip on Ubuntu kernels.
+# We probe all available chips with lgpio directly to find the one that opens,
+# then patch LGPIOFactory.__init__ to bypass the broken auto-detect logic.
 _available = sorted(_glob.glob('/dev/gpiochip*'))
-# Try chips in descending order (Pi 5 chip4 > Pi 4 chip0)
-_chip_nums = sorted(
-    set(int(c.replace('/dev/gpiochip', '')) for c in _available),
-    reverse=True,
-)
-for _chip in _chip_nums:
-    try:
-        gpiozero.Device.pin_factory = LGPIOFactory(chip=_chip)
-        _factory_set = True
+_working_chip = None
+for _c in sorted(int(p.replace('/dev/gpiochip', '')) for p in _available):
+    _h = _lgpio_raw.gpiochip_open(_c)
+    if _h >= 0:
+        _lgpio_raw.gpiochip_close(_h)
+        _working_chip = _c
         break
-    except Exception:
-        continue
 
-if not _factory_set:
+if _working_chip is None:
     raise RuntimeError(
         f'Cannot open any gpiochip. Available: {_available}. '
         f'Make sure /dev/gpiochip* devices are passed to the container '
         f'and the container runs with --privileged.'
     )
+
+def _fixed_lgpio_init(self, chip=None):
+    from gpiozero.pins.lgpio import LGPIOPin
+    super(LGPIOFactory, self).__init__()
+    self._handle = _lgpio_raw.gpiochip_open(_working_chip)
+    self._chip   = _working_chip
+    self.pin_class = LGPIOPin
+
+LGPIOFactory.__init__ = _fixed_lgpio_init
+gpiozero.Device.pin_factory = LGPIOFactory()
 
 
 # ---------------------------------------------------------------------------
@@ -218,12 +224,19 @@ class MotorDriverNode(Node):
         self.declare_parameter('control_rate', 50.0)
         self.declare_parameter('cmd_vel_timeout', 0.5)
         self.declare_parameter('max_motor_speed', 1.0)  # m/s at wheel
+        self.declare_parameter('min_linear_speed', 0.0)  # m/s; 0 disables flooring
+        self.declare_parameter('min_angular_speed', 0.0) # rad/s; 0 disables flooring
         self.declare_parameter('min_pwm', 0.18)  # minimum PWM to overcome static friction
         self.declare_parameter('odom_frame', 'odom')
         self.declare_parameter('base_frame', 'base_link')
         self.declare_parameter('publish_tf', False)  # EKF publishes tf
-        self.declare_parameter('max_accel', 2.0)  # m/s² acceleration limit
+        self.declare_parameter('max_accel', 1.0)  # m/s² acceleration limit
         self.declare_parameter('log_interval', 1.0)  # RPM log interval (s)
+
+        # Skid-steer slip compensation: bias how much of the angular term
+        # each axle takes. front gets (1+bias), rear gets (1-bias).
+        # bias=0 → identical to standard diff drive.
+        self.declare_parameter('turn_front_bias', 0.0)
 
         # PID gains (tuned via dashboard)
         self.declare_parameter('pid_kp_lf', 0.37633)
@@ -242,12 +255,20 @@ class MotorDriverNode(Node):
         # EMA Filter alpha
         self.declare_parameter('ema_alpha', 0.35)
 
+        # Encoder direction flips (1 or -1)
+        self.declare_parameter('encoder_flip_lf', 1)
+        self.declare_parameter('encoder_flip_lr', 1)
+        self.declare_parameter('encoder_flip_rf', 1)
+        self.declare_parameter('encoder_flip_rr', 1)
+
         self.wheel_sep = self.get_parameter('wheel_separation').value
         self.wheel_rad = self.get_parameter('wheel_radius').value
         ticks = self.get_parameter('ticks_per_rev').value
         self.control_rate = self.get_parameter('control_rate').value
         self.cmd_timeout = self.get_parameter('cmd_vel_timeout').value
         self.max_speed = self.get_parameter('max_motor_speed').value
+        self.min_linear_v = self.get_parameter('min_linear_speed').value
+        self.min_angular_v = self.get_parameter('min_angular_speed').value
         self.min_pwm = self.get_parameter('min_pwm').value
         self.odom_frame = self.get_parameter('odom_frame').value
         self.base_frame = self.get_parameter('base_frame').value
@@ -255,6 +276,14 @@ class MotorDriverNode(Node):
         self.max_accel = self.get_parameter('max_accel').value
         self.log_interval = self.get_parameter('log_interval').value
         self.ema_alpha = self.get_parameter('ema_alpha').value
+        self.turn_front_bias = self.get_parameter('turn_front_bias').value
+
+        self.enc_flips = [
+            self.get_parameter('encoder_flip_lf').value,
+            self.get_parameter('encoder_flip_lr').value,
+            self.get_parameter('encoder_flip_rf').value,
+            self.get_parameter('encoder_flip_rr').value,
+        ]
 
         # ---------- Hardware: standby pins ----------
         self.stby1 = DigitalOutputDevice(MD1_STBY)
@@ -319,6 +348,9 @@ class MotorDriverNode(Node):
         # Encoder reads magnitude only; direction comes from the actual PWM
         # sign sent to the motor on the PREVIOUS cycle (not the target).
         self._motor_dir = [1, 1, 1, 1]  # [LF, LR, RF, RR]
+        # Track per-side target direction so we can reset PIDs on flips
+        self._target_dir_left = 0
+        self._target_dir_right = 0
 
         # Velocity ramping state (smooth acceleration/deceleration)
         self._ramped_linear = 0.0
@@ -375,32 +407,67 @@ class MotorDriverNode(Node):
             self.cmd_linear = 0.0
             self.cmd_angular = 0.0
 
+        # --- Enforce minimum speeds for moving commands (0 = disabled) ---
+        linear_v = self.cmd_linear
+        angular_v = self.cmd_angular
+
+        if self.min_linear_v > 0.0 and 0.001 < abs(linear_v) < self.min_linear_v:
+            linear_v = math.copysign(self.min_linear_v, linear_v)
+        if self.min_angular_v > 0.0 and 0.001 < abs(angular_v) < self.min_angular_v:
+            angular_v = math.copysign(self.min_angular_v, angular_v)
+
         # --- Smooth velocity ramping (acceleration limiter) ---
         accel_delta = self.max_accel * dt
         ang_accel_delta = self.max_accel / (self.wheel_sep / 2.0) * dt
         self._ramped_linear = self._ramp_towards(
-            self._ramped_linear, self.cmd_linear, accel_delta)
+            self._ramped_linear, linear_v, accel_delta)
         self._ramped_angular = self._ramp_towards(
-            self._ramped_angular, self.cmd_angular, ang_accel_delta)
+            self._ramped_angular, angular_v, ang_accel_delta)
 
-        # --- Diff-drive inverse kinematics: target wheel speeds (m/s) ---
-        v_left_target = self._ramped_linear - (self._ramped_angular * self.wheel_sep / 2.0)
-        v_right_target = self._ramped_linear + (self._ramped_angular * self.wheel_sep / 2.0)
+        # --- Diff-drive IK with front/rear slip-compensation bias ---
+        # Standard side speed, then per-axle scaling of the angular term.
+        # bias=0 → all four wheels on a side share the same target.
+        omega_arm = self._ramped_angular * self.wheel_sep / 2.0
+        k_front = 1.0 + self.turn_front_bias
+        k_rear = 1.0 - self.turn_front_bias
 
-        # --- Read encoders using PREVIOUS cycle's actual motor direction ---
+        v_lf_target = self._ramped_linear - omega_arm * k_front
+        v_lr_target = self._ramped_linear - omega_arm * k_rear
+        v_rf_target = self._ramped_linear + omega_arm * k_front
+        v_rr_target = self._ramped_linear + omega_arm * k_rear
+
+        # Side-average targets retained for direction tracking / odom side stats
+        v_left_target = (v_lf_target + v_lr_target) / 2.0
+        v_right_target = (v_rf_target + v_rr_target) / 2.0
+
+        # --- Read encoders using PREVIOUS cycle's actual motor direction + flip logic ---
         # The encoder counts magnitude only.
-        t_lf, d_lf = self.enc_lf.get_and_reset(self._motor_dir[0])
-        t_lr, d_lr = self.enc_lr.get_and_reset(self._motor_dir[1])
-        t_rf, d_rf = self.enc_rf.get_and_reset(self._motor_dir[2])
-        t_rr, d_rr = self.enc_rr.get_and_reset(self._motor_dir[3])
+        t_lf, d_lf = self.enc_lf.get_and_reset(self._motor_dir[0] * self.enc_flips[0])
+        t_lr, d_lr = self.enc_lr.get_and_reset(self._motor_dir[1] * self.enc_flips[1])
+        t_rf, d_rf = self.enc_rf.get_and_reset(self._motor_dir[2] * self.enc_flips[2])
+        t_rr, d_rr = self.enc_rr.get_and_reset(self._motor_dir[3] * self.enc_flips[3])
 
         # Velocity filtering (EMA)
         raw_vels = [d_lf / dt, d_lr / dt, d_rf / dt, d_rr / dt]
         for i in range(4):
             self.v_filtered[i] = self.ema_alpha * raw_vels[i] + (1.0 - self.ema_alpha) * self.v_filtered[i]
 
+        # --- Reset PID on per-side target direction flip ---
+        # Prevents the integrator from fighting the new direction during
+        # transitions like forward → in-place rotation.
+        new_dir_left = 0 if abs(v_left_target) < 0.001 else (1 if v_left_target > 0 else -1)
+        new_dir_right = 0 if abs(v_right_target) < 0.001 else (1 if v_right_target > 0 else -1)
+        if new_dir_left != 0 and new_dir_left != self._target_dir_left:
+            self.pid_lf.reset()
+            self.pid_lr.reset()
+        if new_dir_right != 0 and new_dir_right != self._target_dir_right:
+            self.pid_rf.reset()
+            self.pid_rr.reset()
+        self._target_dir_left = new_dir_left
+        self._target_dir_right = new_dir_right
+
         # --- PID Control & Feed-forward ---
-        targets = [v_left_target, v_left_target, v_right_target, v_right_target]
+        targets = [v_lf_target, v_lr_target, v_rf_target, v_rr_target]
         motors = [self.motor_lf, self.motor_lr, self.motor_rf, self.motor_rr]
         pwms = [0.0, 0.0, 0.0, 0.0]
 
@@ -409,11 +476,11 @@ class MotorDriverNode(Node):
             measured_vel = self.v_filtered[i]
 
             if abs(target_vel) < 0.001:
-                # Position hold via active brake at zero velocity
-                motors[i].brake()
+                # Coast at zero target — no active brake (preserves smooth
+                # transitions when one side's target briefly crosses zero).
+                motors[i].set_speed(0.0)
                 self.pids[i].reset()
-                self.v_filtered[i] = 0.0
-                pwms[i] = 1.0  # (indicator)
+                pwms[i] = 0.0
             else:
                 # Standard PI(D) + feed-forward
                 ff = target_vel / self.max_speed
@@ -435,8 +502,9 @@ class MotorDriverNode(Node):
         v_right_meas = (self.v_filtered[2] + self.v_filtered[3]) / 2.0
         
         # Distances per cycle for pose integration
-        d_left = v_left_meas * dt
-        d_right = v_right_meas * dt
+        # Note: ticks (t_lf etc) are already signed by enc_flips and _motor_dir
+        d_left_step = (d_lf + d_lr) / 2.0
+        d_right_step = (d_rf + d_rr) / 2.0
 
         # Joint positions for RViz
         # Left wheels: negative rotation = forward (URDF Y-axis, left side)
@@ -461,8 +529,8 @@ class MotorDriverNode(Node):
                     f'| PWM {pwms[0]:+.2f} {pwms[1]:+.2f} {pwms[2]:+.2f} {pwms[3]:+.2f}')
 
         # --- Forward kinematics: update odometry ---
-        d_center = (d_left + d_right) / 2.0
-        d_theta = (d_right - d_left) / self.wheel_sep
+        d_center = (d_left_step + d_right_step) / 2.0
+        d_theta = (d_right_step - d_left_step) / self.wheel_sep
 
         self.theta += d_theta
         self.x += d_center * math.cos(self.theta)
