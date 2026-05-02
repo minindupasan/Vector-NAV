@@ -5,11 +5,11 @@ ENV ROS_DOMAIN_ID=0
 ENV VECTOR_WS=/ros2_ws
 SHELL ["/bin/bash", "-c"]
 
+# 1. System-level build tools and removal of pre-installed camera libs
 RUN apt-get update && \
     apt-get remove --purge -y libcamera-dev libcamera0 rpicam-apps 2>/dev/null || true && \
-    apt-get autoremove -y
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
+    apt-get autoremove -y && \
+    apt-get install -y --no-install-recommends \
     python3-pip \
     python3-colcon-common-extensions \
     git \
@@ -40,6 +40,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN pip3 install --no-cache-dir meson ninja
 
+# 2. Build libcamera from source (Slow, rarely changes)
 RUN cd /tmp && \
     git clone https://github.com/raspberrypi/libcamera.git && \
     cd libcamera && \
@@ -59,6 +60,7 @@ RUN cd /tmp && \
     ldconfig && \
     rm -rf /tmp/libcamera
 
+# 3. Build rpicam-apps from source (Slow, rarely changes)
 RUN cd /tmp && \
     git clone https://github.com/raspberrypi/rpicam-apps.git && \
     cd rpicam-apps && \
@@ -75,6 +77,18 @@ RUN cd /tmp && \
     ldconfig && \
     rm -rf /tmp/rpicam-apps
 
+# 4. Install heavy Python dependencies (Very slow, moved up to preserve cache)
+# Install CPU-only torch first to prevent ultralytics from pulling in NVIDIA CUDA libs (not needed on RPi)
+RUN pip3 install --no-cache-dir --default-timeout=1000 --prefer-binary \
+    torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+RUN pip3 install --no-cache-dir --default-timeout=1000 --prefer-binary \
+    picamera2 \
+    numpy \
+    opencv-python-headless \
+    ultralytics
+
+# 5. Install ROS-specific dependencies (Likely to be updated during development)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-v4l2-camera \
     ros-humble-image-transport \
@@ -85,12 +99,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-cv-bridge \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip3 install --no-cache-dir --default-timeout=1000 --prefer-binary \
-    picamera2 \
-    numpy \
-    opencv-python-headless \
-    ultralytics
-
+# 6. Workspace setup and source code (Changes every build)
 RUN mkdir -p /ros2_ws/src
 WORKDIR /ros2_ws
 

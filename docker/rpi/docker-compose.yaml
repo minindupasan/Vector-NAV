@@ -24,6 +24,10 @@ services:
     # Full hardware access (GPIO, I2C, SPI, serial)
     privileged: true
 
+    # Join the host 'gpio' group (GID 986) so lgpio can open /dev/gpiochip0
+    group_add:
+      - '986'
+
     environment:
       # Must match the Jetson's ROS_DOMAIN_ID for DDS discovery
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
@@ -32,6 +36,7 @@ services:
 
     volumes:
       # ── /dev: all device nodes (GPIO chips, I2C, SPI, serial) ──
+      # /dev/lidar is a udev symlink → actual ttyUSB device (see 99-lidar.rules)
       - /dev:/dev
 
       # ── Live source mount for development ──

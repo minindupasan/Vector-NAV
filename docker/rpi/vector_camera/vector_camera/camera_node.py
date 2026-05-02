@@ -60,7 +60,7 @@ class CameraPublisher(Node):
         ]
         self.get_logger().info(f'Starting: {" ".join(cmd)}')
         self.process = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=1048576
         )
 
         # Frame buffer
@@ -87,7 +87,7 @@ class CameraPublisher(Node):
         stream = self.process.stdout
 
         while rclpy.ok():
-            chunk = stream.read(4096)
+            chunk = stream.read(65536)
             if not chunk:
                 break
             buf += chunk

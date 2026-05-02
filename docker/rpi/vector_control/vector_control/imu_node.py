@@ -187,7 +187,8 @@ class IMUPublisherNode(Node):
         self.declare_parameter('accel_range', 2)       # g
         self.declare_parameter('gyro_range', 250)       # deg/s
         self.declare_parameter('madgwick_beta', 0.1)
-        self.declare_parameter('calibrate_samples', 200)
+        self.declare_parameter('calibrate_samples', 500)
+        self.declare_parameter('gyro_deadband', 0.005) # rad/s
         self.declare_parameter('use_magnetometer', True)
         self.declare_parameter('frame_id', 'imu_link')
 
@@ -197,6 +198,7 @@ class IMUPublisherNode(Node):
         gyro_range = self.get_parameter('gyro_range').value
         beta = self.get_parameter('madgwick_beta').value
         cal_samples = self.get_parameter('calibrate_samples').value
+        self.deadband = self.get_parameter('gyro_deadband').value
         self.use_mag = self.get_parameter('use_magnetometer').value
         self.frame_id = self.get_parameter('frame_id').value
 
@@ -222,7 +224,7 @@ class IMUPublisherNode(Node):
         self.imu.calibrate_gyro(samples=cal_samples)
         bias = self.imu.gyro_bias
         self.get_logger().info(
-            f'Gyro bias: [{bias[0]:.3f}, {bias[1]:.3f}, {bias[2]:.3f}] deg/s')
+            f'Gyro bias: [{bias[0]:.4f}, {bias[1]:.4f}, {bias[2]:.4f}] deg/s')
 
         # ---------- Madgwick filter ----------
         self.dt = 1.0 / self.rate
@@ -262,7 +264,7 @@ class IMUPublisherNode(Node):
         self.timer = self.create_timer(self.dt, self._publish)
         self.get_logger().info(
             f'IMU publisher started — {self.rate}Hz, beta={beta}, '
-            f'mag={"ON" if self.use_mag else "OFF"}')
+            f'deadband={self.deadband}rad/s, mag={"ON" if self.use_mag else "OFF"}')
 
     # ------------------------------------------------------------------
     def _publish(self):
@@ -274,6 +276,11 @@ class IMUPublisherNode(Node):
         except OSError as e:
             self.get_logger().warn(f'IMU read error: {e}', throttle_duration_sec=2.0)
             return
+
+        # Apply deadband to gyro
+        if abs(gx) < self.deadband: gx = 0.0
+        if abs(gy) < self.deadband: gy = 0.0
+        if abs(gz) < self.deadband: gz = 0.0
 
         mx = my = mz = None
         if self.use_mag:

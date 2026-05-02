@@ -19,7 +19,7 @@ bt_navigator:
 controller_server:
   ros__parameters:
     use_sim_time: false
-    controller_frequency: 20.0
+    controller_frequency: 10.0
     # Hardware floors of the Pi motor_driver (sub-floor commands get
     # snapped UP, so the controller must zero anything below these).
     min_x_velocity_threshold: 0.35
@@ -31,55 +31,55 @@ controller_server:
 
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.5
-      movement_time_allowance: 10.0
+      required_movement_radius: 0.07
+      movement_time_allowance: 25.0
 
     general_goal_checker:
       stateful: true
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.10
-      yaw_goal_tolerance: 0.15
+      xy_goal_tolerance: 0.20
+      yaw_goal_tolerance: 0.35
 
+    # RegulatedPurePursuitController computes a single velocity command
+    # analytically from a lookahead carrot — no sampling lottery, so output
+    # is continuously valid above the Pi motor floor. The min_approach_*
+    # and regulated_*_min_speed floors guarantee we never emit a sub-floor
+    # command (which DWB used to do constantly, getting zeroed at the
+    # controller threshold and producing the vibrate/step-by-step behavior).
     FollowPath:
-      plugin: "dwb_core::DWBLocalPlanner"
-      debug_trajectory_details: true
-      min_vel_x: 0.0
-      min_vel_y: 0.0
-      max_vel_x: 0.5
-      max_vel_y: 0.0
-      max_vel_theta: 1.5
-      # min_speed_* must match the Pi motor floor.
-      min_speed_xy: 0.35
-      max_speed_xy: 0.5
-      min_speed_theta: 2.25
-      acc_lim_x: 1.0
-      acc_lim_y: 0.0
-      acc_lim_theta: 2.0
-      decel_lim_x: -1.0
-      decel_lim_y: 0.0
-      decel_lim_theta: -2.0
-      vx_samples: 20
-      vy_samples: 5
-      vtheta_samples: 20
-      sim_time: 1.5
-      linear_granularity: 0.05
-      angular_granularity: 0.025
+      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
+      desired_linear_vel: 0.75         # cruise well above stiction
+      lookahead_dist: 0.5
+      min_lookahead_dist: 0.3
+      max_lookahead_dist: 0.7
+      lookahead_time: 1.5
+      use_velocity_scaled_lookahead_dist: true
       transform_tolerance: 0.2
-      xy_goal_tolerance: 0.10
-      trans_stopped_velocity: 0.25
-      short_circuit_trajectory_evaluation: true
-      stateful: true
-      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
-      BaseObstacle.scale: 0.02
-      PathAlign.scale: 32.0
-      PathAlign.forward_point_distance: 0.1
-      GoalAlign.scale: 24.0
-      GoalAlign.forward_point_distance: 0.1
-      PathDist.scale: 32.0
-      GoalDist.scale: 24.0
-      RotateToGoal.scale: 32.0
-      RotateToGoal.slowing_factor: 5.0
-      RotateToGoal.lookahead_time: -1.0
+      max_robot_pose_search_dist: 10.0
+
+      # Floors — Pi motor floor is 0.35 m/s electronically, but chassis stiction
+      # is higher. Operate above stiction so every command actually translates
+      # the robot. Raise these further (e.g. 0.55) if it still struggles to start.
+      min_approach_linear_velocity: 0.55
+      approach_velocity_scaling_dist: 0.8
+      use_regulated_linear_velocity_scaling: true
+      regulated_linear_scaling_min_radius: 0.5
+      regulated_linear_scaling_min_speed: 0.55
+      use_cost_regulated_linear_velocity_scaling: false
+
+      # Heading handling — pure rotate-in-place clearly above the angular
+      # stiction band. 2.25 rad/s is the electronic floor; 2.8 reliably
+      # breaks static friction on a heavy chassis.
+      use_rotate_to_heading: true
+      rotate_to_heading_min_angle: 0.5
+      rotate_to_heading_angular_vel: 3.4
+      max_angular_accel: 4.0
+
+      # Collision check along the carrot path.
+      use_collision_detection: true
+      max_allowed_time_to_collision_up_to_carrot: 1.0
+
+      allow_reversing: false
 
 planner_server:
   ros__parameters:
@@ -111,10 +111,10 @@ behavior_server:
     robot_base_frame: base_link
     transform_tolerance: 0.1
     simulate_ahead_time: 2.0
-    # Recovery rotational vels must respect the Pi motor floor (2.25 rad/s):
-    # any value below it would be snapped UP by the motor driver.
-    max_rotational_vel: 2.5
-    min_rotational_vel: 2.25
+    # Recovery rotational vels must clear chassis stiction, not just the
+    # 2.25 rad/s electronic floor — match the controller's rotate vel.
+    max_rotational_vel: 3.6
+    min_rotational_vel: 3.0
     rotational_acc_lim: 2.0
 
 local_costmap:
@@ -147,8 +147,8 @@ local_costmap:
           obstacle_min_range: 0.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.0
-        inflation_radius: 0.35
+        cost_scaling_factor: 2.5
+        inflation_radius: 0.22
       always_send_full_costmap: true
 
 global_costmap:
@@ -182,8 +182,8 @@ global_costmap:
           obstacle_min_range: 0.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.0
-        inflation_radius: 0.35
+        cost_scaling_factor: 2.5
+        inflation_radius: 0.22
       always_send_full_costmap: true
 
 map_server:
