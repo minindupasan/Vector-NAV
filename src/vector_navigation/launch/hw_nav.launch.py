@@ -19,6 +19,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
+from launch.conditions import IfCondition
 from launch.substitutions import Command, LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
@@ -33,6 +34,7 @@ def generate_launch_description():
     nav2_config = os.path.join(pkg, 'config', 'nav2_params_hw.yaml')
     use_sim_time = LaunchConfiguration('use_sim_time', default='false')
     map_yaml = LaunchConfiguration('map')
+    launch_rviz = LaunchConfiguration('rviz', default='false')
 
     robot_description = ParameterValue(Command(['xacro ', xacro_file]), value_type=str)
 
@@ -139,6 +141,7 @@ def generate_launch_description():
         executable='rviz2',
         name='rviz2',
         output='screen',
+        condition=IfCondition(launch_rviz),
         arguments=['-d', os.path.join(pkg, 'config', 'hw_nav.rviz')],
         parameters=[{'use_sim_time': use_sim_time}],
     )
@@ -146,6 +149,8 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('use_sim_time', default_value='false'),
         DeclareLaunchArgument('map', description='Path to map yaml file'),
+        DeclareLaunchArgument('rviz', default_value='false',
+                              description='Launch RViz2 (requires a display)'),
 
         robot_state_publisher,
         nav2_map_server,
