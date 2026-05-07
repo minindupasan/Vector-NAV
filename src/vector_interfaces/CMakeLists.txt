@@ -11,6 +11,11 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/RagQuery.msg"
   "msg/RagContext.msg"
   "msg/LLMToolCall.msg"
+  "msg/RobotStats.msg"
+  "srv/NavigateToLocation.srv"
+  "srv/SetLocation.srv"
+  "srv/GetLocations.srv"
+  "srv/DeleteLocation.srv"
   DEPENDENCIES std_msgs builtin_interfaces
 )
 

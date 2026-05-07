@@ -1,671 +1,432 @@
 /**
- * Vector Nav — Web Voice Assistant Client
- *
- * Push-to-talk mic capture, WebSocket transport, and gapless audio playback.
+ * Vector Nav — Unified Control & Voice Assistant
  */
 
-// ── State ───────────────────────────────────────────────────────────────────
+// ── Configuration ────────────────────────────────────────────────────────────
+const APP_PORT = location.port || (location.protocol === 'https:' ? '443' : '80');
 
-let ws = null;
+// ── State ────────────────────────────────────────────────────────────────────
+let voiceWs = null;
+let bridgeWs = null;
 let mediaRecorder = null;
 let audioChunks = [];
-let micStream = null;  // Persistent mic stream after permission is granted
+let micStream = null;
 let state = 'idle'; // idle | recording | processing | playing
 
+// Control State
+let joyLinearActive = false;
+let joyAngularActive = false;
+let joyLinear = 0.0;
+let joyAngular = 0.0;
+let maxLinear = 0.50;
+let maxAngular = 1.00;
+let minLinear = 0.07;
+let cmdInterval = null;
+
+const PRESETS = {
+    ECO:     { linear: 0.30, angular: 1.00 },
+    CLASSIC: { linear: 0.60, angular: 1.80 },
+    SPORT:   { linear: 0.90, angular: 2.50 },
+};
+
+// ── DOM Refs ──────────────────────────────────────────────────────────────────
 const chat = document.getElementById('chat');
 const micBtn = document.getElementById('micBtn');
 const statusDot = document.getElementById('statusDot');
 const statusText = document.getElementById('statusText');
 const stateLabel = document.getElementById('stateLabel');
-const stateDetail = document.getElementById('stateDetail');
 const spectrumCanvas = document.getElementById('spectrum');
 
-// ── Spectrum visualizer ─────────────────────────────────────────────────────
+// Drawer Refs
+const menuBtn = document.getElementById('menu-btn');
+const closeDrawerBtn = document.getElementById('close-drawer');
+const drawer = document.getElementById('drawer');
+const drawerOverlay = document.getElementById('drawer-overlay');
 
+// Drive Mode Refs
+const driveOverlay = document.getElementById('drive-overlay');
+const enterDriveBtn = document.getElementById('enter-drive-btn');
+const closeDriveBtn = document.getElementById('close-drive');
+const maxSpeedSlider = document.getElementById('max-speed-slider');
+const minSpeedSlider = document.getElementById('min-speed-slider');
+const maxSpeedVal = document.getElementById('max-speed-val');
+const minSpeedVal = document.getElementById('min-speed-val');
+const driveBattery = document.getElementById('drive-stat-battery');
+const driveVel = document.getElementById('drive-stat-vel');
+
+// Stats & Control Refs
+const headerBattery = document.getElementById('header-battery-fill');
+const headerBatteryText = document.getElementById('header-battery-text');
+const statBattery = document.getElementById('stat-battery');
+const statNav = document.getElementById('stat-nav');
+const statLoc = document.getElementById('stat-loc');
+const statVel = document.getElementById('stat-vel');
+const locInput = document.getElementById('loc-input');
+const saveLocBtn = document.getElementById('save-loc-btn');
+const locList = document.getElementById('locations-list');
+const stopNavBtn = document.getElementById('stop-nav-btn');
+const toast = document.getElementById('toast');
+
+// ── Spectrum Visualizer ───────────────────────────────────────────────────────
 class SpectrumVisualizer {
     constructor(canvas) {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d');
-        this.analyser = null;          // active analyser (mic or tts)
-        this.source = 'idle';          // 'idle' | 'mic' | 'tts'
+        this.analyser = null;
         this.data = null;
-        this.smoothed = null;          // for smooth bar transitions
-        this.raf = null;
-        this.dpr = Math.max(1, window.devicePixelRatio || 1);
+        this.dpr = window.devicePixelRatio || 1;
         this._resize();
         window.addEventListener('resize', () => this._resize());
         this._loop = this._loop.bind(this);
         this._loop();
     }
-
     _resize() {
         const rect = this.canvas.getBoundingClientRect();
-        this.canvas.width = Math.max(1, Math.floor(rect.width * this.dpr));
-        this.canvas.height = Math.max(1, Math.floor(rect.height * this.dpr));
+        this.canvas.width = rect.width * this.dpr;
+        this.canvas.height = rect.height * this.dpr;
     }
-
-    setAnalyser(analyser, source) {
+    setAnalyser(analyser) {
         this.analyser = analyser;
-        this.source = source;
-        this.env = 0;
-        if (analyser) {
-            this.data = new Uint8Array(analyser.frequencyBinCount);
-            this.smoothed = null;
-        }
+        if (analyser) this.data = new Uint8Array(analyser.frequencyBinCount);
     }
-
-    clear() {
-        this.analyser = null;
-        this.source = 'idle';
-    }
-
     _loop() {
-        this.raf = requestAnimationFrame(this._loop);
+        requestAnimationFrame(this._loop);
         const { ctx, canvas } = this;
         const W = canvas.width, H = canvas.height;
         ctx.clearRect(0, 0, W, H);
-
-        if (!this.analyser) {
-            this._drawIdle(W, H);
-            return;
-        }
-
-        // Time-domain waveform → "signal" line
-        if (!this.data || this.data.length !== this.analyser.fftSize) {
-            this.data = new Uint8Array(this.analyser.fftSize);
-        }
+        if (!this.analyser) return;
         this.analyser.getByteTimeDomainData(this.data);
-
-        const centerY = H / 2;
-        const N = this.data.length;
-        const stepX = W / (N - 1);
-
-        // Subtle center reference line
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
-        ctx.lineWidth = 1 * this.dpr;
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2 * this.dpr;
         ctx.beginPath();
-        ctx.moveTo(0, centerY);
-        ctx.lineTo(W, centerY);
-        ctx.stroke();
-
-        // Compute RMS of current frame → drives dynamic amplification so
-        // quiet voice still produces visible motion, and louder voice pushes
-        // the line toward full height.
-        let sumSq = 0;
-        for (let i = 0; i < N; i++) {
-            const s = (this.data[i] - 128) / 128;
-            sumSq += s * s;
+        const sliceWidth = W / this.data.length;
+        let x = 0;
+        for (let i = 0; i < this.data.length; i++) {
+            const v = this.data[i] / 128.0;
+            const y = v * (H / 2);
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            x += sliceWidth;
         }
-        const rms = Math.sqrt(sumSq / N); // 0..~0.7 for speech
-
-        // Envelope follower (fast attack, slower release) for pulsing thickness/glow
-        if (typeof this.env !== 'number') this.env = 0;
-        const target = Math.min(1, rms * 6);   // 0..1
-        const coef = target > this.env ? 0.5 : 0.08;
-        this.env += (target - this.env) * coef;
-
-        // Base + dynamic gain. Mic hits hard; TTS still reacts noticeably.
-        const baseGain = this.source === 'mic' ? 6.0 : 4.0;
-        const dynGain = 1 + this.env * 2.5;   // 1x..3.5x extra when loud
-        const gain = baseGain * dynGain;
-
-        // Glow pulses with envelope
-        const glow = 4 + this.env * 14;
-        const lineW = (1.4 + this.env * 1.6) * this.dpr;
-
-        ctx.shadowColor = 'rgba(255, 255, 255, 0.55)';
-        ctx.shadowBlur = glow * this.dpr;
-        ctx.lineWidth = lineW;
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.98)';
-        ctx.lineJoin = 'round';
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        for (let i = 0; i < N; i++) {
-            const v = (this.data[i] - 128) / 128; // -1..1
-            const y = centerY + Math.max(-1, Math.min(1, v * gain)) * (H * 0.48);
-            const x = i * stepX;
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
-        }
-        ctx.stroke();
-        ctx.shadowBlur = 0;
-    }
-
-    _drawIdle(W, H) {
-        const { ctx } = this;
-        const t = performance.now() / 1000;
-        const centerY = H / 2;
-        const amp = H * 0.06;
-
-        // Center reference line
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
-        ctx.lineWidth = 1 * this.dpr;
-        ctx.beginPath();
-        ctx.moveTo(0, centerY);
-        ctx.lineTo(W, centerY);
-        ctx.stroke();
-
-        // Soft breathing sine line
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
-        ctx.lineWidth = 1.4 * this.dpr;
-        ctx.lineJoin = 'round';
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        const steps = 180;
-        for (let i = 0; i <= steps; i++) {
-            const x = (i / steps) * W;
-            const phase = (i / steps) * Math.PI * 4 + t * 1.2;
-            const y = centerY + Math.sin(phase) * amp * (0.6 + 0.4 * Math.sin(t * 0.7));
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
-        }
+        ctx.lineTo(W, H / 2);
         ctx.stroke();
     }
 }
+const visualizer = new SpectrumVisualizer(spectrumCanvas);
 
-const spectrum = new SpectrumVisualizer(spectrumCanvas);
-
-// Mic analyser (attached while recording)
-let micAnalyserCtx = null;
-let micAnalyser = null;
-let micSourceNode = null;
-
-function attachMicAnalyser(stream) {
-    try {
-        if (!micAnalyserCtx) {
-            micAnalyserCtx = new (window.AudioContext || window.webkitAudioContext)();
-        }
-        if (micAnalyserCtx.state === 'suspended') micAnalyserCtx.resume();
-        // Tear down prior source if any
-        if (micSourceNode) {
-            try { micSourceNode.disconnect(); } catch (_) {}
-        }
-        micSourceNode = micAnalyserCtx.createMediaStreamSource(stream);
-        micAnalyser = micAnalyserCtx.createAnalyser();
-        micAnalyser.fftSize = 512;
-        micAnalyser.smoothingTimeConstant = 0.75;
-        micSourceNode.connect(micAnalyser);
-        spectrum.setAnalyser(micAnalyser, 'mic');
-    } catch (e) {
-        console.warn('Mic analyser attach failed', e);
-    }
-}
-
-function detachMicAnalyser() {
-    if (spectrum.source === 'mic') spectrum.clear();
-    if (micSourceNode) {
-        try { micSourceNode.disconnect(); } catch (_) {}
-        micSourceNode = null;
-    }
-    micAnalyser = null;
-}
-
-function releaseMicStream() {
-    detachMicAnalyser();
-    if (micStream) {
-        micStream.getTracks().forEach(t => {
-            try { t.stop(); } catch (_) {}
-        });
-        micStream = null;
-    }
-}
-
-// ── Audio playback queue ────────────────────────────────────────────────────
-
-class AudioQueue {
-    constructor() {
-        this.ctx = null;
-        this.analyser = null;
-        this.gain = null;
-        this.nextStart = 0;
-        this.playing = 0;
-        this.onFinish = null;
-        // Boost TTS playback so it's clearly audible (browsers cap at ~1.0 per node
-        // but chained gain + compressor can push perceived loudness higher).
-        this.volume = 3.0;
-    }
-
-    _buildGraph() {
-        this.analyser = this.ctx.createAnalyser();
-        this.analyser.fftSize = 1024;
-        this.analyser.smoothingTimeConstant = 0.75;
-
-        this.gain = this.ctx.createGain();
-        this.gain.gain.value = this.volume;
-
-        const comp = this.ctx.createDynamicsCompressor();
-        comp.threshold.value = -18;
-        comp.knee.value = 12;
-        comp.ratio.value = 3;
-        comp.attack.value = 0.003;
-        comp.release.value = 0.2;
-
-        // source → analyser → gain → compressor → destination
-        this.analyser.connect(this.gain);
-        this.gain.connect(comp);
-        comp.connect(this.ctx.destination);
-    }
-
-    _createContext() {
-        this.ctx = new AudioContext({ sampleRate: 24000, latencyHint: 'interactive' });
-        this._buildGraph();
-
-        // Watch for the context being auto-suspended by the browser (happens
-        // on Safari/iOS after silence, or after a mic session ends). When it
-        // flips to 'suspended', try to bring it back right away.
-        this.ctx.onstatechange = () => {
-            console.log('[audio] ctx.state =', this.ctx.state);
-            if (this.ctx.state === 'suspended') {
-                this.ctx.resume().catch(() => {});
-            }
-        };
-
-        // Prime with a 1-sample silent buffer — a well-known iOS trick that
-        // fully unlocks the audio output route on first activation.
-        try {
-            const silent = this.ctx.createBuffer(1, 1, this.ctx.sampleRate);
-            const src = this.ctx.createBufferSource();
-            src.buffer = silent;
-            src.connect(this.ctx.destination);
-            src.start(0);
-        } catch (_) {}
-    }
-
-    async _ensureContext() {
-        // Recreate if the context was closed/broken
-        if (this.ctx && this.ctx.state === 'closed') {
-            this.ctx = null;
-        }
-        if (!this.ctx) {
-            this._createContext();
-        }
-        if (this.ctx.state === 'suspended') {
-            try {
-                await this.ctx.resume();
-            } catch (e) {
-                console.warn('[audio] resume failed:', e);
-            }
-        }
-        return this.ctx.state === 'running';
-    }
-
-    setVolume(v) {
-        this.volume = v;
-        if (this.gain) this.gain.gain.value = v;
-    }
-
-    async enqueue(wavArrayBuffer) {
-        const running = await this._ensureContext();
-        if (!running) {
-            console.warn('[audio] context not running, state=', this.ctx && this.ctx.state);
-        }
-
-        let buffer;
-        try {
-            buffer = await this.ctx.decodeAudioData(wavArrayBuffer);
-        } catch (e) {
-            console.error('[audio] decode failed:', e);
-            return;
-        }
-
-        const source = this.ctx.createBufferSource();
-        source.buffer = buffer;
-        source.connect(this.analyser);
-
-        const now = this.ctx.currentTime;
-        // If scheduling has drifted behind the clock (context was suspended
-        // then resumed), snap back to "now" so audio doesn't get scheduled
-        // in the past and silently dropped.
-        if (this.nextStart < now) {
-            this.nextStart = now + 0.02;
-        }
-        const start = Math.max(now + 0.02, this.nextStart);
-        source.start(start);
-        this.nextStart = start + buffer.duration;
-        this.playing++;
-
-        // Switch spectrum to TTS output while playback is active
-        spectrum.setAnalyser(this.analyser, 'tts');
-
-        source.onended = () => {
-            this.playing--;
-            if (this.playing <= 0) {
-                this.playing = 0;
-                if (spectrum.source === 'tts') spectrum.clear();
-                if (this.onFinish) this.onFinish();
-            }
-        };
-    }
-
-    reset() {
-        this.nextStart = 0;
-        this.playing = 0;
-    }
-}
-
-const audioQueue = new AudioQueue();
-
-// ── WebSocket ───────────────────────────────────────────────────────────────
-
-function connect() {
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(`${proto}://${location.host}/ws/voice`);
-
-    ws.binaryType = 'arraybuffer';
-
-    ws.onopen = async () => {
+// ── Connections ───────────────────────────────────────────────────────────────
+function connectVoice() {
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    voiceWs = new WebSocket(`${protocol}//${location.hostname}:${APP_PORT}/ws/voice`);
+    voiceWs.onopen = () => {
         statusDot.className = 'status-dot connected';
-        statusText.textContent = 'Connected';
+        statusText.textContent = 'Voice Ready';
         micBtn.disabled = false;
-        setState('idle');
-        // NOTE: We intentionally do NOT request the mic here.
-        // On iOS/Safari, holding an active getUserMedia stream forces the
-        // audio session into "play-and-record" mode, which routes TTS output
-        // through the earpiece instead of the loudspeaker. We only request
-        // the mic on button press and release all tracks on stop.
     };
-
-    ws.onclose = () => {
+    voiceWs.onclose = () => {
         statusDot.className = 'status-dot';
         statusText.textContent = 'Disconnected';
         micBtn.disabled = true;
-        // Reconnect after a delay
-        setTimeout(connect, 3000);
+        setTimeout(connectVoice, 2000);
     };
+    voiceWs.onmessage = handleVoiceMessage;
+}
 
-    ws.onerror = () => {
-        statusDot.className = 'status-dot';
-        statusText.textContent = 'Connection error';
+function connectBridge() {
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    bridgeWs = new WebSocket(`${protocol}//${location.hostname}:${APP_PORT}/ws/control`);
+    bridgeWs.onopen = () => {
+        console.log('Control Bridge connected');
+        fetchLocations();
     };
-
-    // Track whether we're expecting a binary WAV after a tts_chunk JSON
-    let expectingAudio = false;
-    let currentBotMsg = null;
-
-    ws.onmessage = (event) => {
-        // Binary message = WAV audio
-        if (event.data instanceof ArrayBuffer) {
-            if (state !== 'playing') {
-                setState('playing');
-            }
-            audioQueue.enqueue(event.data.slice(0));  // copy for decodeAudioData
-            return;
-        }
-
-        // JSON message
-        const msg = JSON.parse(event.data);
-
-        switch (msg.type) {
-            case 'stt':
-                // Update user message with actual transcription
-                updateLastUserMessage(msg.text);
-                break;
-
-            case 'tts_chunk':
-                // Append bot text
-                if (!currentBotMsg) {
-                    currentBotMsg = addMessage('bot', msg.text);
-                } else {
-                    appendToMessage(currentBotMsg, ' ' + msg.text);
-                }
-                break;
-
-            case 'done':
-                currentBotMsg = null;
-                audioQueue.onFinish = () => {
-                    setState('idle');
-                    audioQueue.onFinish = null;
-                };
-                // If no audio was queued, go idle immediately
-                if (audioQueue.playing <= 0) {
-                    setState('idle');
-                }
-                break;
-
-            case 'error':
-                addMessage('error', msg.message);
-                setState('idle');
-                currentBotMsg = null;
-                break;
-        }
+    bridgeWs.onclose = () => {
+        console.log('Control Bridge disconnected');
+        setTimeout(connectBridge, 2000);
+    };
+    bridgeWs.onmessage = (evt) => {
+        const msg = JSON.parse(evt.data);
+        if (msg.type === 'stats') updateStats(msg);
+        else if (msg.type === 'ack') showToast(msg.message, msg.success);
     };
 }
 
-// ── UI helpers ──────────────────────────────────────────────────────────────
-
-function setState(newState) {
-    state = newState;
-    micBtn.classList.remove('recording');
-
-    switch (newState) {
-        case 'idle':
-            stateLabel.textContent = 'Hold to speak';
-            stateDetail.textContent = '';
-            micBtn.disabled = false;
-            break;
-        case 'recording':
-            stateLabel.textContent = 'Listening...';
-            stateDetail.textContent = '';
-            micBtn.classList.add('recording');
-            break;
-        case 'processing':
-            stateLabel.textContent = 'Processing...';
-            stateDetail.textContent = '';
-            micBtn.disabled = true;
-            break;
-        case 'playing':
-            stateLabel.textContent = 'Speaking...';
-            stateDetail.textContent = '';
-            micBtn.disabled = true;
-            break;
-    }
-}
-
-function addMessage(role, text) {
-    const div = document.createElement('div');
-    div.className = `message ${role}`;
-
-    if (role !== 'error') {
-        const label = document.createElement('div');
-        label.className = 'label';
-        label.textContent = role === 'user' ? 'You' : 'Vector Nav';
-        div.appendChild(label);
-    }
-
-    const textEl = document.createElement('div');
-    textEl.className = 'text';
-    textEl.textContent = text;
-    div.appendChild(textEl);
-
-    chat.appendChild(div);
-    chat.scrollTop = chat.scrollHeight;
-    return div;
-}
-
-function appendToMessage(msgEl, text) {
-    const textEl = msgEl.querySelector('.text');
-    if (textEl) {
-        textEl.textContent += text;
-        chat.scrollTop = chat.scrollHeight;
-    }
-}
-
-function updateLastUserMessage(text) {
-    const msgs = chat.querySelectorAll('.message.user');
-    if (msgs.length > 0) {
-        const last = msgs[msgs.length - 1];
-        const textEl = last.querySelector('.text');
-        if (textEl) {
-            textEl.textContent = text;
-        }
-    }
-}
-
-// ── Microphone permission ───────────────────────────────────────────────────
-
-async function requestMicPermission() {
-    // Check if getUserMedia is available (requires secure context)
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        const isSecure = window.isSecureContext;
-        addMessage('error',
-            `Microphone API not available (Secure Context: ${isSecure ? 'Yes' : 'No'}).\n\n` +
-            '1. Ensure you are using https://' + location.host + '\n' +
-            '2. If using a self-signed certificate, you must "Accept Risk" in your browser.\n' +
-            '3. On some mobile devices, the mic is only allowed over HTTPS.');
-        return false;
-    }
-
-    try {
-        // Disable processing flags that push iOS into voice-call audio mode.
-        // This keeps the audio session as "playback" once tracks are released,
-        // so TTS output routes to the loudspeaker, not the earpiece.
-        micStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-                echoCancellation: false,
-                noiseSuppression: false,
-                autoGainControl: false,
-            },
-        });
-        console.log('Microphone permission granted');
-        return true;
-    } catch (err) {
-        if (err.name === 'NotAllowedError') {
-            addMessage('error',
-                'Microphone permission denied. Please click the lock/site-settings icon ' +
-                'in your browser address bar and allow microphone access, then reload.');
-        } else if (err.name === 'NotFoundError') {
-            addMessage('error', 'No microphone found. Please connect a microphone and reload.');
-        } else {
-            addMessage('error', `Microphone error: ${err.message}`);
-        }
-        console.error('Mic permission error:', err);
-        return false;
-    }
-}
-
-// ── Push-to-talk ────────────────────────────────────────────────────────────
-
+// ── Voice Logic ───────────────────────────────────────────────────────────────
 async function startRecording() {
     if (state !== 'idle') return;
-
-    // Unlock the playback AudioContext on this user gesture (required by
-    // iOS Safari & some Android browsers). There's no separate "speaker
-    // permission" in browsers — audio output just needs a user-initiated
-    // resume() of the AudioContext. Awaited so playback is guaranteed to
-    // be unlocked before any TTS audio is scheduled.
     try {
-        await audioQueue._ensureContext();
-    } catch (_) { /* will retry on first chunk */ }
+        if (!micStream) micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioCtx.createMediaStreamSource(micStream);
+        const analyser = audioCtx.createAnalyser();
+        source.connect(analyser);
+        visualizer.setAnalyser(analyser);
 
-    // Ensure we have mic access
-    if (!micStream || !micStream.active) {
-        const granted = await requestMicPermission();
-        if (!granted) return;
-    }
-
-    try {
-        // Prefer webm/opus, fall back to whatever the browser supports
-        const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-            ? 'audio/webm;codecs=opus'
-            : 'audio/webm';
-
-        mediaRecorder = new MediaRecorder(micStream, { mimeType });
+        mediaRecorder = new MediaRecorder(micStream);
         audioChunks = [];
-
-        mediaRecorder.ondataavailable = (e) => {
-            if (e.data.size > 0) {
-                audioChunks.push(e.data);
-            }
-        };
-
+        mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
         mediaRecorder.onstop = () => {
-            // Fully release mic tracks so iOS switches the audio session
-            // back from "play-and-record" (earpiece) to "playback" (loudspeaker).
-            releaseMicStream();
-
-            if (audioChunks.length === 0) {
-                setState('idle');
-                return;
-            }
-
-            const blob = new Blob(audioChunks, { type: mimeType });
+            const blob = new Blob(audioChunks, { type: 'audio/webm' });
             sendAudio(blob);
+            visualizer.setAnalyser(null);
         };
-
         mediaRecorder.start();
-        attachMicAnalyser(micStream);
         setState('recording');
-        addMessage('user', '...');  // Placeholder
-
     } catch (err) {
-        addMessage('error', `Recording failed: ${err.message}`);
-        console.error('Recording error:', err);
+        showToast('Mic access denied', false);
     }
 }
 
 function stopRecording() {
     if (mediaRecorder && mediaRecorder.state === 'recording') {
         mediaRecorder.stop();
-        detachMicAnalyser();
         setState('processing');
     }
 }
 
 function sendAudio(blob) {
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-        addMessage('error', 'Not connected to server');
-        setState('idle');
+    if (voiceWs && voiceWs.readyState === WebSocket.OPEN) {
+        blob.arrayBuffer().then(buf => voiceWs.send(buf));
+    }
+}
+
+function handleVoiceMessage(evt) {
+    if (typeof evt.data === 'string') {
+        const msg = JSON.parse(evt.data);
+        if (msg.type === 'stt') addMessage('user', msg.text);
+        else if (msg.type === 'tts_chunk') addMessage('bot', msg.text);
+        else if (msg.type === 'done') setState('idle');
+        else if (msg.type === 'error') {
+            addMessage('bot', 'Error: ' + msg.message);
+            setState('idle');
+        }
+    } else {
+        // Audio playback handled by browser/OS
+    }
+}
+
+function setState(s) {
+    state = s;
+    micBtn.className = 'mic-btn' + (s === 'recording' ? ' recording' : '');
+    stateLabel.textContent = s.toUpperCase();
+}
+
+function addMessage(who, text) {
+    if (!text) return;
+    const div = document.createElement('div');
+    div.className = `message ${who}`;
+    div.innerHTML = `<div class="label">${who}</div><div class="text">${text}</div>`;
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+}
+
+// ── Control Logic ─────────────────────────────────────────────────────────────
+function updateStats(msg) {
+    const pct = msg.battery_percentage || 0;
+    const batStr = `${pct.toFixed(0)}%`;
+    
+    headerBatteryText.textContent = batStr;
+    headerBattery.style.width = batStr;
+    headerBattery.style.background = pct > 50 ? '#34c759' : pct > 20 ? '#ff9800' : '#ff3b30';
+    
+    statBattery.textContent = batStr;
+    if (driveBattery) driveBattery.textContent = batStr;
+
+    statNav.textContent = msg.navigation_status || 'Idle';
+    statLoc.textContent = msg.current_location || 'Unknown';
+    
+    if (msg.linear_velocity !== undefined) {
+        const velStr = `${msg.linear_velocity.toFixed(2)} m/s`;
+        if (statVel) statVel.textContent = velStr;
+        if (driveVel) driveVel.textContent = velStr;
+    }
+}
+
+function fetchLocations() {
+    fetch(`${location.protocol}//${location.hostname}:${APP_PORT}/api/locations`)
+        .then(r => r.json())
+        .then(renderLocations)
+        .catch(err => console.error('Failed to fetch locations:', err));
+}
+
+function renderLocations(locs) {
+    if (!locs || Object.keys(locs).length === 0) {
+        locList.innerHTML = '<div class="empty-msg">No waypoints saved</div>';
         return;
     }
+    locList.innerHTML = '';
+    for (const [name, data] of Object.entries(locs)) {
+        const item = document.createElement('div');
+        item.className = 'location-item';
+        item.innerHTML = `
+            <span class="location-name">${name}</span>
+            <span class="delete-btn" data-name="${name}">&times;</span>
+        `;
+        item.querySelector('.location-name').onclick = () => navigateTo(name);
+        item.querySelector('.delete-btn').onclick = (e) => deleteLocation(e.target.dataset.name);
+        locList.appendChild(item);
+    }
+}
 
-    blob.arrayBuffer().then(buffer => {
-        ws.send(buffer);
-        // Reset audio queue for new response
-        audioQueue.reset();
+function saveLocation() {
+    const name = locInput.value.trim();
+    if (!name) return;
+    fetch(`${location.protocol}//${location.hostname}:${APP_PORT}/api/locations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+    }).then(() => {
+        locInput.value = '';
+        fetchLocations();
     });
 }
 
-// ── Event listeners ─────────────────────────────────────────────────────────
+function deleteLocation(name) {
+    fetch(`${location.protocol}//${location.hostname}:${APP_PORT}/api/locations/${encodeURIComponent(name)}`, {
+        method: 'DELETE'
+    }).then(fetchLocations);
+}
 
-// Mouse events
-micBtn.addEventListener('mousedown', (e) => {
-    e.preventDefault();
-    startRecording();
-});
-micBtn.addEventListener('mouseup', (e) => {
-    e.preventDefault();
-    stopRecording();
-});
-micBtn.addEventListener('mouseleave', (e) => {
-    if (state === 'recording') {
-        stopRecording();
+function navigateTo(name) {
+    fetch(`${location.protocol}//${location.hostname}:${APP_PORT}/api/navigate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+    });
+}
+
+let linearManager = null;
+let angularManager = null;
+
+// ── Teleop ──
+function initJoysticks() {
+    if (linearManager) linearManager.destroy();
+    if (angularManager) angularManager.destroy();
+    document.getElementById('joystick-linear').innerHTML = '';
+    document.getElementById('joystick-angular').innerHTML = '';
+
+    // Linear Joystick (Left)
+    linearManager = nipplejs.create({
+        zone: document.getElementById('joystick-linear'),
+        mode: 'static',
+        position: { left: '80px', top: '80px' },
+        color: '#ffffff',
+        size: 130,
+        threshold: 0.1,
+        lockY: true 
+    });
+
+    linearManager.on('move', (evt, data) => {
+        if (!data.vector) return;
+        joyLinearActive = true;
+        const sensitivity = 2.0;
+        let forward = data.vector.y * sensitivity;
+        forward = Math.max(-1.0, Math.min(1.0, forward));
+        joyLinear = forward * maxLinear;
+    });
+
+    linearManager.on('end', () => {
+        joyLinearActive = false;
+        joyLinear = 0;
+        if (!joyAngularActive) sendWS({ type: 'stop' });
+    });
+
+    // Angular Joystick (Right)
+    angularManager = nipplejs.create({
+        zone: document.getElementById('joystick-angular'),
+        mode: 'static',
+        position: { left: '80px', top: '80px' },
+        color: '#ffffff',
+        size: 130,
+        threshold: 0.1,
+        lockX: true
+    });
+
+    angularManager.on('move', (evt, data) => {
+        if (!data.vector) return;
+        joyAngularActive = true;
+        const sensitivity = 2.0;
+        let turn = -data.vector.x * sensitivity;
+        turn = Math.max(-1.0, Math.min(1.0, turn));
+        joyAngular = turn * maxAngular;
+    });
+
+    angularManager.on('end', () => {
+        joyAngularActive = false;
+        joyAngular = 0;
+        if (!joyLinearActive) sendWS({ type: 'stop' });
+    });
+
+    if (cmdInterval) clearInterval(cmdInterval);
+    cmdInterval = setInterval(() => {
+        if (joyLinearActive || joyAngularActive) {
+            sendWS({ type: 'cmd_vel', linear: joyLinear, angular: joyAngular });
+        }
+    }, 50);
+}
+
+function sendWS(obj) {
+    if (bridgeWs && bridgeWs.readyState === WebSocket.OPEN) {
+        bridgeWs.send(JSON.stringify(obj));
     }
+}
+
+function showToast(msg, success) {
+    toast.textContent = msg;
+    toast.style.borderColor = success ? 'var(--success)' : 'var(--danger)';
+    toast.classList.add('active');
+    setTimeout(() => toast.classList.remove('active'), 3000);
+}
+
+// ── Listeners ────────────────────────────────────────────────────────────────
+menuBtn.onclick = () => { 
+    drawer.classList.add('active'); 
+    drawerOverlay.classList.add('active'); 
+};
+closeDrawerBtn.onclick = drawerOverlay.onclick = () => { 
+    drawer.classList.remove('active'); 
+    drawerOverlay.classList.remove('active'); 
+};
+
+enterDriveBtn.onclick = () => {
+    drawer.classList.remove('active');
+    drawerOverlay.classList.remove('active');
+    driveOverlay.classList.add('active');
+    setTimeout(initJoysticks, 200);
+};
+
+closeDriveBtn.onclick = () => {
+    driveOverlay.classList.remove('active');
+    if (linearManager) linearManager.destroy();
+    if (angularManager) angularManager.destroy();
+};
+
+maxSpeedSlider.oninput = () => {
+    maxLinear = parseFloat(maxSpeedSlider.value);
+    maxSpeedVal.textContent = maxLinear.toFixed(2);
+};
+
+minSpeedSlider.oninput = () => {
+    minLinear = parseFloat(minSpeedSlider.value);
+    minSpeedVal.textContent = minLinear.toFixed(2);
+};
+
+micBtn.onmousedown = micBtn.ontouchstart = (e) => { e.preventDefault(); startRecording(); };
+micBtn.onmouseup = micBtn.onmouseleave = micBtn.ontouchend = (e) => { e.preventDefault(); stopRecording(); };
+
+saveLocBtn.onclick = saveLocation;
+stopNavBtn.onclick = () => fetch(`${location.protocol}//${location.hostname}:${APP_PORT}/api/navigate/cancel`, { method: 'POST' });
+
+document.querySelectorAll('.preset-btn').forEach(btn => {
+    btn.onclick = () => {
+        document.querySelectorAll('.preset-btn.active').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const p = PRESETS[btn.dataset.preset];
+        maxLinear = p.linear;
+        maxAngular = p.angular;
+        maxSpeedSlider.value = maxLinear;
+        maxSpeedVal.textContent = maxLinear.toFixed(2);
+    };
 });
 
-// Touch events (mobile)
-micBtn.addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    startRecording();
-});
-micBtn.addEventListener('touchend', (e) => {
-    e.preventDefault();
-    stopRecording();
-});
-
-// Keyboard: hold Space to talk
-document.addEventListener('keydown', (e) => {
-    if (e.code === 'Space' && !e.repeat && state === 'idle') {
-        e.preventDefault();
-        startRecording();
-    }
-});
-document.addEventListener('keyup', (e) => {
-    if (e.code === 'Space' && state === 'recording') {
-        e.preventDefault();
-        stopRecording();
-    }
-});
-
-// ── Init ────────────────────────────────────────────────────────────────────
-
-connect();
+// ── Init ─────────────────────────────────────────────────────────────────────
+connectVoice();
+connectBridge();

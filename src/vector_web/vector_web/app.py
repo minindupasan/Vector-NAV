@@ -1,11 +1,8 @@
 """
-VECTOR NAV — Web Voice Assistant
-=================================
-FastAPI server with WebSocket endpoint for browser-based voice interaction.
-
-Run:
-    cd /home/admin/vector_nav/src/vector_web
-    uvicorn vector_web.app:app --host 0.0.0.0 --port 8080
+VECTOR NAV — Web Voice Assistant & ROS2 Bridge
+=============================================
+Unified FastAPI server on port 8080.
+Handles Voice interaction, Telemetry, and Teleop Bridge.
 """
 
 import os
@@ -13,11 +10,27 @@ import ssl
 import asyncio
 import logging
 import subprocess
+import threading
+import json
+import math
+import time
 from pathlib import Path
+from typing import Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel
+
+import rclpy
+from rclpy.node import Node
+from rclpy.executors import MultiThreadedExecutor
+from rclpy.callback_groups import ReentrantCallbackGroup
+from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
+from vector_interfaces.msg import RobotStats
+from vector_interfaces.srv import (
+    DeleteLocation, GetLocations, NavigateToLocation, SetLocation,
+)
 
 from .audio_utils import decode_webm_to_pcm
 from .pipeline import VoicePipeline
@@ -42,191 +55,232 @@ PORT = int(os.environ.get('PORT', '8080'))
 STATIC_DIR = Path(__file__).parent / 'static'
 CERT_DIR = Path(__file__).parent.parent / 'certs'
 
+# ── Pydantic request models ───────────────────────────────────────────────────
+
+class SaveLocationRequest(BaseModel):
+    name: str
+
+class NavigateRequest(BaseModel):
+    name: str
+
+# ── ROS2 Bridge Node ─────────────────────────────────────────────────────────
+
+class UnifiedBridgeNode(Node):
+    def __init__(self, loop: asyncio.AbstractEventLoop):
+        super().__init__('vector_web_bridge')
+        self._loop = loop
+        self._ws_clients: set[WebSocket] = set()
+        self._ws_lock = threading.Lock()
+        
+        self._latest_stats: dict = {
+            'type': 'stats',
+            'battery_voltage': 0.0,
+            'battery_percentage': 0.0,
+            'navigation_status': 'Unknown',
+            'current_location': 'Unknown',
+            'status_message': 'Connecting...',
+            'linear_velocity': 0.0,
+            'angular_velocity': 0.0,
+        }
+        
+        cb = ReentrantCallbackGroup()
+        self._cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        
+        self.create_subscription(RobotStats, '/robot_stats', self._on_stats, 10, callback_group=cb)
+        self.create_subscription(PoseWithCovarianceStamped, '/amcl_pose', self._on_pose, 10, callback_group=cb)
+        
+        self._svc_navigate = self.create_client(NavigateToLocation, '/navigate_to_location', callback_group=cb)
+        self._svc_set_loc   = self.create_client(SetLocation, '/set_location', callback_group=cb)
+        self._svc_get_locs  = self.create_client(GetLocations, '/get_locations', callback_group=cb)
+        self._svc_del_loc   = self.create_client(DeleteLocation, '/delete_location', callback_group=cb)
+
+        # Teleop Watchdog
+        self._target_twist = Twist()
+        self._last_cmd_time = 0
+        self.create_timer(0.05, self._on_teleop_timer)
+
+    def _on_teleop_timer(self):
+        # Only publish if we've had a command in the last 500ms
+        if time.time() - self._last_cmd_time < 0.5:
+            self._cmd_vel_pub.publish(self._target_twist)
+
+    def set_twist(self, linear, angular):
+        self._target_twist.linear.x = linear
+        self._target_twist.angular.z = angular
+        self._last_cmd_time = time.time()
+        self._cmd_vel_pub.publish(self._target_twist)
+
+    def stop_robot(self):
+        self._target_twist = Twist()
+        self._last_cmd_time = 0
+        self._cmd_vel_pub.publish(self._target_twist)
+
+    def _on_stats(self, msg: RobotStats):
+        self._latest_stats.update({
+            'battery_voltage': round(msg.battery_voltage, 2),
+            'battery_percentage': round(msg.battery_percentage, 1),
+            'navigation_status': msg.navigation_status,
+            'current_location': msg.current_location,
+            'status_message': msg.status_message,
+            'linear_velocity': round(msg.linear_velocity, 3),
+            'angular_velocity': round(msg.angular_velocity, 3),
+        })
+        asyncio.run_coroutine_threadsafe(self._broadcast(self._latest_stats), self._loop)
+
+    def _on_pose(self, msg: PoseWithCovarianceStamped):
+        pass # Optional: broadcast pose if needed
+
+    async def _broadcast(self, data: dict):
+        with self._ws_lock:
+            clients = list(self._ws_clients)
+        for ws in clients:
+            try: await ws.send_json(data)
+            except: pass
+
+    def call_srv(self, client, req):
+        if not client.wait_for_service(timeout_sec=2.0): return None
+        future = client.call_async(req)
+        rclpy.spin_until_future_complete(self, future, timeout_sec=5.0)
+        return future.result()
+
 # ── App ──────────────────────────────────────────────────────────────────────
 
-app = FastAPI(title='Vector Nav Voice Assistant')
+app = FastAPI(title='Vector Nav Unified App')
 app.mount('/static', StaticFiles(directory=str(STATIC_DIR)), name='static')
 
 pipeline: VoicePipeline | None = None
-
+bridge: UnifiedBridgeNode | None = None
 
 @app.on_event('startup')
 async def startup():
-    global pipeline
-    logger.info('Loading voice pipeline...')
+    global pipeline, bridge
+    logger.info('Loading unified app components...')
+    
+    # Init Voice
     pipeline = VoicePipeline(
-        ws_url=WS_URL,
-        stt_model=STT_MODEL,
-        tts_voice=TTS_VOICE,
-        tts_speed=TTS_SPEED,
-        tts_engine_dir=TTS_ENGINE_DIR,
-        use_trt=USE_TRT,
+        ws_url=WS_URL, stt_model=STT_MODEL, tts_voice=TTS_VOICE,
+        tts_speed=TTS_SPEED, tts_engine_dir=TTS_ENGINE_DIR, use_trt=USE_TRT,
     )
-    # Load engines in a thread so we don't block the event loop
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, pipeline.load)
-    logger.info('Voice pipeline ready — server accepting connections')
-
+    
+    # Init ROS2 Bridge
+    if not rclpy.ok(): rclpy.init()
+    bridge = UnifiedBridgeNode(loop)
+    executor = MultiThreadedExecutor()
+    executor.add_node(bridge)
+    threading.Thread(target=executor.spin, daemon=True).start()
+    
+    logger.info('Unified app ready')
 
 @app.get('/')
 async def index():
     return FileResponse(str(STATIC_DIR / 'index.html'))
 
+# ── API Endpoints (Proxied to ROS2) ──────────────────────────────────────────
+
+@app.get('/api/locations')
+async def get_locations():
+    req = GetLocations.Request()
+    res = bridge.call_srv(bridge._svc_get_locs, req)
+    if not res: return JSONResponse({})
+    out = {}
+    for i, name in enumerate(res.names):
+        out[name] = {'x': res.xs[i], 'y': res.ys[i], 'yaw': res.yaws[i]}
+    return JSONResponse(out)
+
+@app.post('/api/locations')
+async def save_location(body: SaveLocationRequest):
+    req = SetLocation.Request()
+    req.name = body.name
+    res = bridge.call_srv(bridge._svc_set_loc, req)
+    return JSONResponse({'success': res.success if res else False})
+
+@app.delete('/api/locations/{name}')
+async def delete_location(name: str):
+    req = DeleteLocation.Request()
+    req.name = name
+    res = bridge.call_srv(bridge._svc_del_loc, req)
+    return JSONResponse({'success': res.success if res else False})
+
+@app.post('/api/navigate')
+async def navigate(body: NavigateRequest):
+    req = NavigateToLocation.Request()
+    req.name = body.name
+    res = bridge.call_srv(bridge._svc_navigate, req)
+    return JSONResponse({'success': res.success if res else False})
+
+@app.post('/api/navigate/cancel')
+async def cancel_nav():
+    bridge._cmd_vel_pub.publish(Twist())
+    return JSONResponse({'success': True})
+
+# ── WebSockets ────────────────────────────────────────────────────────────────
 
 @app.websocket('/ws/voice')
 async def voice_ws(websocket: WebSocket):
     await websocket.accept()
-    logger.info('WebSocket client connected')
-
     try:
         while True:
-            # Receive binary audio (WebM/Opus from browser)
             data = await websocket.receive_bytes()
-            logger.info(f'Received audio: {len(data)} bytes')
-
             loop = asyncio.get_event_loop()
+            pcm = await loop.run_in_executor(None, decode_webm_to_pcm, data)
+            
+            def run_voice():
+                return pipeline.process(pcm, on_tts_chunk=lambda s, b: asyncio.run_coroutine_threadsafe(_send_tts_chunk(websocket, s, b), loop))
 
-            # Decode audio in executor
-            try:
-                pcm = await loop.run_in_executor(
-                    None, decode_webm_to_pcm, data
-                )
-            except RuntimeError as e:
-                await websocket.send_json({
-                    'type': 'error',
-                    'message': f'Audio decode failed: {e}',
-                })
-                continue
-
-            duration = len(pcm) / 16000
-            logger.info(f'Decoded to {duration:.1f}s of audio')
-
-            if duration < 0.3:
-                await websocket.send_json({
-                    'type': 'error',
-                    'message': 'Audio too short — hold the button longer',
-                })
-                continue
-
-            # Run the full pipeline in executor with streaming callbacks
-            def run_pipeline():
-                chunks_sent = []
-
-                def on_tts_chunk(sentence: str, wav_bytes: bytes):
-                    # Schedule sends from the executor thread
-                    asyncio.run_coroutine_threadsafe(
-                        _send_tts_chunk(websocket, sentence, wav_bytes),
-                        loop,
-                    ).result(timeout=10)  # Wait so chunks stay ordered
-                    chunks_sent.append(sentence)
-
-                result = pipeline.process(pcm, on_tts_chunk=on_tts_chunk)
-                return result
-
-            try:
-                result = await loop.run_in_executor(None, run_pipeline)
-            except Exception as e:
-                logger.exception('Pipeline error')
-                await websocket.send_json({
-                    'type': 'error',
-                    'message': f'Processing failed: {e}',
-                })
-                continue
-
-            # Send STT result
-            await websocket.send_json({
-                'type': 'stt',
-                'text': result['stt_text'],
-                'confidence': result['confidence'],
-            })
-
-            # Signal completion
+            result = await loop.run_in_executor(None, run_voice)
+            await websocket.send_json({'type': 'stt', 'text': result['stt_text'], 'confidence': result['confidence']})
             await websocket.send_json({'type': 'done'})
+    except WebSocketDisconnect: pass
 
-    except WebSocketDisconnect:
-        logger.info('WebSocket client disconnected')
-
+@app.websocket('/ws/control')
+async def control_ws(websocket: WebSocket):
+    await websocket.accept()
+    with bridge._ws_lock: bridge._ws_clients.add(websocket)
+    try:
+        await websocket.send_json(bridge._latest_stats)
+        while True:
+            raw = await websocket.receive_text()
+            msg = json.loads(raw)
+            mtype = msg.get('type')
+            if mtype == 'cmd_vel':
+                lin = float(msg.get('linear', 0.0))
+                ang = float(msg.get('angular', 0.0))
+                if abs(lin) > 0.001 or abs(ang) > 0.001:
+                    logger.debug(f"Teleop: lin={lin:.3f}, ang={ang:.3f}")
+                bridge.set_twist(lin, ang)
+            elif mtype == 'stop':
+                logger.debug("Teleop: STOP")
+                bridge.stop_robot()
+    except WebSocketDisconnect: pass
+    finally:
+        with bridge._ws_lock: bridge._ws_clients.discard(websocket)
 
 async def _send_tts_chunk(websocket: WebSocket, text: str, wav_bytes: bytes):
-    """Send a TTS chunk (JSON metadata + binary WAV) over the WebSocket."""
-    await websocket.send_json({
-        'type': 'tts_chunk',
-        'text': text,
-    })
+    await websocket.send_json({'type': 'tts_chunk', 'text': text})
     await websocket.send_bytes(wav_bytes)
 
+# ── Utils & Entry ───────────────────────────────────────────────────────────
 
-# ── SSL cert generation ──────────────────────────────────────────────────────
-
-def _ensure_self_signed_cert() -> tuple[str, str]:
-    """Generate a self-signed cert if one doesn't exist. Returns (certfile, keyfile)."""
+def _ensure_self_signed_cert():
     CERT_DIR.mkdir(parents=True, exist_ok=True)
-    cert_file = CERT_DIR / 'cert.pem'
-    key_file = CERT_DIR / 'key.pem'
-
-    if cert_file.exists() and key_file.exists():
-        logger.info(f'Using existing SSL cert from {CERT_DIR}')
-        return str(cert_file), str(key_file)
-
-    logger.info('Generating self-signed SSL certificate for HTTPS...')
-    subprocess.run([
-        'openssl', 'req', '-x509', '-newkey', 'rsa:2048',
-        '-keyout', str(key_file),
-        '-out', str(cert_file),
-        '-days', '365', '-nodes',
-        '-subj', '/CN=vector-nav',
-    ], check=True, capture_output=True)
-    logger.info(f'SSL cert generated at {CERT_DIR}')
-    return str(cert_file), str(key_file)
-
-
-# ── CLI entry point ──────────────────────────────────────────────────────────
+    c, k = CERT_DIR / 'cert.pem', CERT_DIR / 'key.pem'
+    if not (c.exists() and k.exists()):
+        subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-keyout', str(k), '-out', str(c), '-days', '365', '-nodes', '-subj', '/CN=vector-nav'], check=True, capture_output=True)
+    return str(c), str(k)
 
 def _free_port(port: int):
-    """Kill any process currently bound to port (cleans previous vector_web sessions)."""
     try:
-        out = subprocess.run(
-            ['lsof', '-tiTCP:%d' % port, '-sTCP:LISTEN'],
-            capture_output=True, text=True, check=False,
-        )
-        own_pid = os.getpid()
-        pids = [int(p) for p in out.stdout.split() if p.strip().isdigit() and int(p) != own_pid]
-        for pid in pids:
-            logger.warning(f'Port {port} held by PID {pid} — terminating previous session')
-            try:
-                os.kill(pid, 15)  # SIGTERM first
-            except ProcessLookupError:
-                continue
-        if pids:
-            import time
-            time.sleep(1)
-            for pid in pids:
-                try:
-                    os.kill(pid, 9)  # SIGKILL if still alive
-                except ProcessLookupError:
-                    pass
-    except FileNotFoundError:
-        logger.warning('lsof not installed — cannot auto-clean previous sessions')
-
+        out = subprocess.run(['lsof', '-tiTCP:%d' % port, '-sTCP:LISTEN'], capture_output=True, text=True)
+        for pid in out.stdout.split():
+            if int(pid) != os.getpid(): os.kill(int(pid), 9)
+    except: pass
 
 def main():
     import uvicorn
-
     _free_port(PORT)
-    cert_file, key_file = _ensure_self_signed_cert()
+    c, k = _ensure_self_signed_cert()
+    uvicorn.run('vector_web.app:app', host=HOST, port=PORT, ssl_keyfile=k, ssl_certfile=c, log_level='info')
 
-    print(f'\n  Open https://{HOST}:{PORT} in your browser')
-    print(f'  (Note: You will need to accept the self-signed certificate warning)\n')
-
-    uvicorn.run(
-        'vector_web.app:app',
-        host=HOST,
-        port=PORT,
-        ssl_keyfile=key_file,
-        ssl_certfile=cert_file,
-        log_level='info',
-    )
-
-
-if __name__ == '__main__':
-    main()
+if __name__ == '__main__': main()

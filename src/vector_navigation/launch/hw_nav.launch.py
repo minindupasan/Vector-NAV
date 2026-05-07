@@ -146,9 +146,12 @@ def generate_launch_description():
         parameters=[{'use_sim_time': use_sim_time}],
     )
 
+    default_map = os.path.join(os.path.expanduser('~'), 'vector_nav', 'maps', 'home.yaml')
+
     return LaunchDescription([
         DeclareLaunchArgument('use_sim_time', default_value='false'),
-        DeclareLaunchArgument('map', description='Path to map yaml file'),
+        DeclareLaunchArgument('map', default_value=default_map,
+                              description='Path to map yaml file'),
         DeclareLaunchArgument('rviz', default_value='false',
                               description='Launch RViz2 (requires a display)'),
 

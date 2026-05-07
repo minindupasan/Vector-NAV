@@ -1,0 +1,37 @@
+[Unit]
+Description=Vector Nav — NanoLLM Server (Llama-3.2-3B)
+Documentation=https://github.com/dusty-nv/jetson-containers
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=forking
+User=admin
+Group=docker
+
+EnvironmentFile=/home/admin/vector_nav/.env.local
+Environment=HOME=/home/admin
+
+# Remove any stale container from a previous run before starting
+ExecStartPre=/usr/bin/docker rm -f nano_llm_server
+
+ExecStart=/home/admin/vector_nav/scripts/run_llm_headless.sh
+
+# On stop, remove the container cleanly
+ExecStop=/usr/bin/docker stop nano_llm_server
+ExecStopPost=/usr/bin/docker rm -f nano_llm_server
+
+# Give the container time to pull/load the model on first run (~10 min worst case)
+TimeoutStartSec=600
+TimeoutStopSec=30
+
+Restart=on-failure
+RestartSec=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vector-llm
+
+[Install]
+WantedBy=multi-user.target

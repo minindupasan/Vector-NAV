@@ -1,0 +1,46 @@
+[Unit]
+Description=Vector Nav — Web Voice Assistant UI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=admin
+Group=admin
+WorkingDirectory=/home/admin/vector_nav/src/vector_web
+
+EnvironmentFile=/home/admin/vector_nav/.env.local
+Environment=HOME=/home/admin
+Environment=PATH=/home/admin/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONPATH=/home/admin/vector_nav/src/vector_web
+
+# NanoLLM WebSocket endpoint (served by vector-llm.service)
+Environment=WS_URL=wss://localhost:49000
+
+# TTS engine — set USE_TRT=false if Kokoro TRT engine is not built yet
+Environment=TTS_VOICE=af_heart
+Environment=TTS_SPEED=1.0
+Environment=USE_TRT=true
+Environment=TTS_ENGINE_DIR=/home/admin/models/kokoro_trt
+
+# STT model (base.en is fast and accurate for English)
+Environment=STT_MODEL=base.en
+
+# Locations file shared with vector_nav_manager
+Environment=LOCATIONS_FILE=/home/admin/vector_nav/config/locations.yaml
+
+Environment=HOST=0.0.0.0
+Environment=PORT=8080
+
+ExecStart=/home/admin/vector_nav/scripts/run_web.sh
+
+TimeoutStartSec=120
+Restart=on-failure
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vector-web
+
+[Install]
+WantedBy=multi-user.target

@@ -2,47 +2,166 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vector Nav — Voice Assistant</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Vector Nav</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
-    <meta name="theme-color" content="#000000">
 </head>
 <body>
-    <div class="header">
-        <div class="brand">
-            <div class="logo-mark">
-                <span></span><span></span><span></span><span></span>
+    <!-- DRIVE MODE OVERLAY -->
+    <div id="drive-overlay" class="drive-overlay">
+        <button id="close-drive" class="close-drive-btn">&times;</button>
+        
+        <div class="drive-layout">
+            <div class="joystick-container left">
+                <div id="joystick-linear"></div>
+                <span class="joystick-label">LINEAR</span>
             </div>
-            <h1>VECTOR<span class="accent-text">NAV</span></h1>
+
+            <div class="drive-center-panel">
+                <div class="drive-stats">
+                    <div id="drive-stat-battery">--%</div>
+                    <div id="drive-stat-vel">0.00 m/s</div>
+                </div>
+
+                <div class="preset-row">
+                    <button class="preset-btn active" data-preset="ECO">ECO</button>
+                    <button class="preset-btn" data-preset="CLASSIC">STD</button>
+                    <button class="preset-btn" data-preset="SPORT">FAST</button>
+                </div>
+
+                <div class="speed-settings">
+                    <div class="setting-group">
+                        <label>MAX SPEED (m/s)</label>
+                        <input type="range" id="max-speed-slider" min="0.1" max="1.5" step="0.05" value="0.5">
+                        <span id="max-speed-val">0.50</span>
+                    </div>
+                    <div class="setting-group">
+                        <label>MIN SPEED (m/s)</label>
+                        <input type="range" id="min-speed-slider" min="0.01" max="0.2" step="0.01" value="0.07">
+                        <span id="min-speed-val">0.07</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="joystick-container right">
+                <div id="joystick-angular"></div>
+                <span class="joystick-label">ANGULAR</span>
+            </div>
         </div>
-        <div class="status">
-            <span class="status-dot" id="statusDot"></span>
-            <span id="statusText">Connecting...</span>
+    </div>
+
+    <!-- SIDEBAR / DRAWER -->
+    <div id="drawer-overlay" class="drawer-overlay"></div>
+    <aside id="drawer" class="drawer">
+        <div class="drawer-handle"></div>
+        <div class="drawer-header">
+            <h2>Robot Settings</h2>
+            <button id="close-drawer" class="close-btn">&times;</button>
         </div>
+        
+        <div class="drawer-content">
+            <button id="enter-drive-btn" class="drive-mode-btn">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <path d="M12 2v20M2 12h20"></path>
+                </svg>
+                Enter Drive Mode
+            </button>
+
+            <!-- STATS -->
+            <section class="panel">
+                <h3 class="panel-title">Live Telemetry</h3>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <span class="stat-label">Power</span>
+                        <span class="stat-value" id="stat-battery">--%</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Status</span>
+                        <span class="stat-value" id="stat-nav">Unknown</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Location</span>
+                        <span class="stat-value" id="stat-loc">Unknown</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Velocity</span>
+                        <span class="stat-value" id="stat-vel">0.0 m/s</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- LOCATIONS -->
+            <section class="panel">
+                <h3 class="panel-title">Waypoints</h3>
+                <div class="save-row">
+                    <input type="text" id="loc-input" placeholder="New location name..." autocomplete="off">
+                    <button id="save-loc-btn" class="action-btn">Save</button>
+                </div>
+                <div id="locations-list" class="locations-list">
+                    <div class="empty-msg">No waypoints saved</div>
+                </div>
+            </section>
+
+            <button id="stop-nav-btn" class="stop-btn">Halt Robot</button>
+        </div>
+    </aside>
+
+    <!-- MAIN APP -->
+    <div class="app-shell">
+        <header class="header">
+            <div class="brand">
+                <h1>Vector<span class="accent-text">Nav</span></h1>
+            </div>
+            <div class="header-right">
+                <div class="battery-indicator" id="header-battery">
+                    <div class="battery-level" id="header-battery-fill"></div>
+                    <span id="header-battery-text">--%</span>
+                </div>
+                <button id="menu-btn" class="menu-btn">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <line x1="3" y1="12" x2="21" y2="12"></line>
+                        <line x1="3" y1="6" x2="21" y2="6"></line>
+                        <line x1="3" y1="18" x2="21" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <main class="chat-container" id="chat"></main>
+
+        <div class="spectrum-wrap">
+            <canvas id="spectrum" class="spectrum"></canvas>
+        </div>
+
+        <footer class="controls">
+            <div class="status-wrap">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="statusText">System Offline</span>
+            </div>
+            
+            <button class="mic-btn" id="micBtn" disabled>
+                <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="2" width="6" height="12" rx="3"></rect>
+                    <path d="M5 10a7 7 0 0 0 14 0"></path>
+                    <line x1="12" y1="17" x2="12" y2="22"></line>
+                    <line x1="8" y1="22" x2="16" y2="22"></line>
+                </svg>
+            </button>
+
+            <div class="state-wrap">
+                <span class="state-label" id="stateLabel">Standby</span>
+            </div>
+        </footer>
     </div>
 
-    <div class="chat-container" id="chat"></div>
+    <!-- TOAST -->
+    <div id="toast" class="toast"></div>
 
-    <div class="spectrum-wrap">
-        <canvas id="spectrum" class="spectrum"></canvas>
-    </div>
-
-    <div class="controls">
-        <span class="state-label" id="stateLabel">Ready</span>
-        <button class="mic-btn" id="micBtn" disabled aria-label="Hold to speak">
-            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="9" y="2" width="6" height="12" rx="3"></rect>
-                <path d="M5 10a7 7 0 0 0 14 0"></path>
-                <line x1="12" y1="17" x2="12" y2="22"></line>
-                <line x1="8" y1="22" x2="16" y2="22"></line>
-            </svg>
-        </button>
-        <span class="state-label" id="stateDetail"></span>
-    </div>
-
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
     <script src="/static/app.js"></script>
 </body>
 </html>
