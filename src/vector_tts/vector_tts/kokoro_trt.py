@@ -129,13 +129,14 @@ class KokoroTRT:
             self._decoder = None
             logger.info('No decoder engine found — using PyTorch fallback')
 
-        # PyTorch fallback for decoder
+        # PyTorch failsafe — only loaded if TRT decode produces NaN/Inf, or if
+        # no TRT decoder is present at all. Stored on CPU to avoid GPU contention
+        # with NanoLLM.
         self._pt_decoder = None
+        self._pt_model = None
+        self._repo_id = repo_id
         if self._decoder is None:
-            from kokoro import KModel
-            logger.info('Loading PyTorch Kokoro model for decoder fallback...')
-            self._pt_model = KModel(repo_id=repo_id, disable_complex=True).cuda().eval()
-            self._pt_decoder = self._pt_model.decoder
+            self._ensure_pt_decoder()
 
         logger.info('Kokoro TRT engines loaded')
 
@@ -149,7 +150,6 @@ class KokoroTRT:
 
         # Voice cache
         self._voices = {}
-        self._repo_id = repo_id
         self.sample_rate = 24000
 
     def load_voice(self, voice: str) -> np.ndarray:
@@ -262,15 +262,38 @@ class KokoroTRT:
         # asr = t_en @ pred_aln → [1, 512, total_len]
         asr = t_en @ pred_aln  # [1, 512, total_len]
 
-        # 11. Decode → audio
-        dec_out = self._decoder(
-            asr=asr.astype(np.float32),
-            f0=f0.astype(np.float32),
-            noise=noise.astype(np.float32),
-            style=style,
-        )
-        audio = dec_out['audio'].squeeze()  # flatten [1, 1, T] → [T]
-        return audio.astype(np.float32)
+        # 11. Decode → audio (TRT). If TRT output is NaN/Inf, fall back to PyTorch.
+        if self._decoder is not None:
+            dec_out = self._decoder(
+                asr=asr.astype(np.float32),
+                f0=f0.astype(np.float32),
+                noise=noise.astype(np.float32),
+                style=style,
+            )
+            audio = dec_out['audio'].squeeze().astype(np.float32)
+            if not (np.isnan(audio).any() or np.isinf(audio).any()):
+                return audio
+            logger.warning('TRT decoder produced NaN/Inf — falling back to PyTorch for this chunk')
+            self._ensure_pt_decoder()
+
+        # PyTorch decoder fallback (loaded lazily)
+        with torch.no_grad():
+            asr_t   = torch.from_numpy(asr.astype(np.float32))
+            f0_t    = torch.from_numpy(f0.astype(np.float32))
+            noise_t = torch.from_numpy(noise.astype(np.float32))
+            style_t = torch.from_numpy(style.astype(np.float32))
+            audio_t = self._pt_decoder(asr_t, f0_t, noise_t, style_t)
+        audio = audio_t.squeeze().detach().numpy().astype(np.float32)
+        return np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
+
+    def _ensure_pt_decoder(self):
+        """Lazy-load the PyTorch CPU decoder for fallback."""
+        if self._pt_decoder is not None:
+            return
+        from kokoro import KModel
+        logger.info('Loading PyTorch Kokoro decoder fallback (CPU)...')
+        self._pt_model = KModel(repo_id=self._repo_id, disable_complex=True).eval()
+        self._pt_decoder = self._pt_model.decoder
 
     # ── G2P chunking (from KPipeline) ────────────────────────────────────
 

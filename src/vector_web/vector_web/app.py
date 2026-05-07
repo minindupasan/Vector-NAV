@@ -182,9 +182,37 @@ def _ensure_self_signed_cert() -> tuple[str, str]:
 
 # ── CLI entry point ──────────────────────────────────────────────────────────
 
+def _free_port(port: int):
+    """Kill any process currently bound to port (cleans previous vector_web sessions)."""
+    try:
+        out = subprocess.run(
+            ['lsof', '-tiTCP:%d' % port, '-sTCP:LISTEN'],
+            capture_output=True, text=True, check=False,
+        )
+        own_pid = os.getpid()
+        pids = [int(p) for p in out.stdout.split() if p.strip().isdigit() and int(p) != own_pid]
+        for pid in pids:
+            logger.warning(f'Port {port} held by PID {pid} — terminating previous session')
+            try:
+                os.kill(pid, 15)  # SIGTERM first
+            except ProcessLookupError:
+                continue
+        if pids:
+            import time
+            time.sleep(1)
+            for pid in pids:
+                try:
+                    os.kill(pid, 9)  # SIGKILL if still alive
+                except ProcessLookupError:
+                    pass
+    except FileNotFoundError:
+        logger.warning('lsof not installed — cannot auto-clean previous sessions')
+
+
 def main():
     import uvicorn
 
+    _free_port(PORT)
     cert_file, key_file = _ensure_self_signed_cert()
 
     print(f'\n  Open https://{HOST}:{PORT} in your browser')

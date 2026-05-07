@@ -23,7 +23,18 @@ from vector_rag.rag_engine import RAGEngine
 from vector_llm.llm_engine import LLMEngine
 from faster_whisper import WhisperModel
 
+import os
+
 from .audio_utils import pcm_to_wav
+
+_SPEAKER_DEVICE = os.environ.get('TTS_SPEAKER_DEVICE', 'pulse').strip() or None
+_sd = None
+if _SPEAKER_DEVICE:
+    try:
+        import sounddevice as _sd  # noqa
+    except Exception as _e:
+        logging.getLogger(__name__).warning(f'sounddevice unavailable — speaker output disabled: {_e}')
+        _sd = None
 
 logger = logging.getLogger(__name__)
 
@@ -206,11 +217,22 @@ class VoicePipeline:
 
         # 3) LLM streaming with per-sentence TTS
         def on_sentence(sentence: str):
-            if on_tts_chunk and sentence.strip():
-                audio = self.synthesize(sentence)
-                if len(audio) > 0:
-                    wav_bytes = pcm_to_wav(audio, self.sample_rate)
-                    on_tts_chunk(sentence, wav_bytes)
+            if not sentence.strip():
+                return
+            audio = self.synthesize(sentence)
+            if len(audio) == 0:
+                return
+            # Browser playback (WAV chunk over WebSocket)
+            if on_tts_chunk:
+                wav_bytes = pcm_to_wav(audio, self.sample_rate)
+                on_tts_chunk(sentence, wav_bytes)
+            # Local i2s speaker playback via PulseAudio
+            if _sd is not None and _SPEAKER_DEVICE:
+                try:
+                    _sd.play(audio, samplerate=self.sample_rate,
+                             device=_SPEAKER_DEVICE, blocking=True)
+                except Exception as e:
+                    logger.warning(f'Speaker playback failed: {e}')
 
         result = self.llm.chat_stream(
             text, context=context, on_chunk=on_sentence

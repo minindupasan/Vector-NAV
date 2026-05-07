@@ -44,8 +44,20 @@ def fix_tied_embeddings(model_dir):
     # Find safetensors files
     st_files = sorted(glob.glob(os.path.join(model_dir, "*.safetensors")))
     if not st_files:
-        print("No safetensors files found.")
-        return False
+        print("No safetensors files found yet (still downloading), skipping fix.")
+        return True
+
+    # Check all shards in the index are present before attempting fix
+    index_path = os.path.join(model_dir, "model.safetensors.index.json")
+    if os.path.exists(index_path):
+        with open(index_path) as f:
+            index = json.load(f)
+        expected = set(index["weight_map"].values())
+        present = {os.path.basename(f) for f in st_files}
+        missing = expected - present
+        if missing:
+            print(f"Shards still downloading: {missing}, skipping fix.")
+            return True
 
     # Check if lm_head.weight already exists in any shard
     embed_weight = None
@@ -93,11 +105,21 @@ if __name__ == "__main__":
     model_name = sys.argv[1] if len(sys.argv) > 1 else "meta-llama/Llama-3.2-3B-Instruct"
     hf_cache = "/data/models/huggingface"
 
+    # Fix HF cache snapshot (if already downloaded)
     model_dir = find_model_snapshot(hf_cache, model_name)
-    if not model_dir:
-        print(f"Model snapshot not found for {model_name} in {hf_cache}")
-        sys.exit(1)
+    if model_dir:
+        print(f"Model dir (HF cache): {model_dir}")
+        if not fix_tied_embeddings(model_dir):
+            sys.exit(1)
+    else:
+        print(f"Model not yet cached for {model_name}, skipping HF cache fix.")
 
-    print(f"Model dir: {model_dir}")
-    if not fix_tied_embeddings(model_dir):
-        sys.exit(1)
+    # Fix mlc dist model path (where MLC build actually reads from)
+    model_short = model_name.split("/")[-1]
+    mlc_model_dir = f"/data/models/mlc/dist/models/{model_short}"
+    if os.path.isdir(mlc_model_dir):
+        print(f"Model dir (MLC dist): {mlc_model_dir}")
+        if not fix_tied_embeddings(mlc_model_dir):
+            sys.exit(1)
+    else:
+        print(f"MLC dist model path not found ({mlc_model_dir}), skipping.")
