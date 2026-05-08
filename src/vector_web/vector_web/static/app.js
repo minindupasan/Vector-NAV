@@ -185,7 +185,29 @@ function handleVoiceMessage(evt) {
         if (msg.type === 'stt') addMessage('user', msg.text);
         else if (msg.type === 'tts_chunk') addMessage('bot', msg.text);
         else if (msg.type === 'done') setState('idle');
+    } else {
+        // Binary WAV chunk — play in browser when target=='browser'
+        playBrowserWav(evt.data);
     }
+}
+
+// ── Browser TTS playback queue ───────────────────────────────────────────────
+const browserAudio = { queue: [], playing: false, volume: 1.0 };
+
+function playBrowserWav(blob) {
+    const url = URL.createObjectURL(blob);
+    browserAudio.queue.push(url);
+    if (!browserAudio.playing) _drainBrowserAudio();
+}
+
+function _drainBrowserAudio() {
+    const url = browserAudio.queue.shift();
+    if (!url) { browserAudio.playing = false; return; }
+    browserAudio.playing = true;
+    const a = new Audio(url);
+    a.volume = Math.max(0, Math.min(1, browserAudio.volume));
+    a.onended = a.onerror = () => { URL.revokeObjectURL(url); _drainBrowserAudio(); };
+    a.play().catch(err => { console.warn('browser audio failed', err); URL.revokeObjectURL(url); _drainBrowserAudio(); });
 }
 
 function setState(s) {
@@ -423,6 +445,51 @@ document.querySelectorAll('.preset-btn').forEach(btn => {
         maxAngular = p.angular;
         maxSpeedSlider.value = maxLinear;
         maxSpeedVal.textContent = maxLinear.toFixed(2);
+    };
+});
+
+// ── Audio Config (Speaker target + volume) ──────────────────────────────────
+const volSlider = document.getElementById('volume-slider');
+const volVal = document.getElementById('vol-val');
+const targetBtns = document.querySelectorAll('.target-btn');
+
+function postAudioConfig(patch) {
+    return fetch(`${location.protocol}//${location.hostname}:${APP_PORT}/api/audio`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+    }).then(r => r.json()).catch(() => null);
+}
+
+function applyAudioConfig({ volume, target }) {
+    if (typeof volume === 'number') {
+        const pct = Math.round(volume * 100);
+        volSlider.value = pct;
+        volVal.textContent = `${pct}%`;
+        browserAudio.volume = Math.min(1.0, volume);
+    }
+    if (target) {
+        targetBtns.forEach(b => b.classList.toggle('active', b.dataset.target === target));
+    }
+}
+
+fetch(`${location.protocol}//${location.hostname}:${APP_PORT}/api/audio`)
+    .then(r => r.json()).then(applyAudioConfig).catch(() => {});
+
+let _volTimer = null;
+volSlider.oninput = () => {
+    const pct = parseInt(volSlider.value, 10);
+    volVal.textContent = `${pct}%`;
+    browserAudio.volume = Math.min(1.0, pct / 100);
+    clearTimeout(_volTimer);
+    _volTimer = setTimeout(() => postAudioConfig({ volume: pct / 100 }), 150);
+};
+
+targetBtns.forEach(btn => {
+    btn.onclick = () => {
+        targetBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        postAudioConfig({ target: btn.dataset.target });
     };
 });
 

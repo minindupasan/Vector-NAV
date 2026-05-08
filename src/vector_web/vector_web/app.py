@@ -47,8 +47,6 @@ WS_URL = os.environ.get('WS_URL', 'wss://localhost:49000')
 STT_MODEL = os.environ.get('STT_MODEL', 'base.en')
 TTS_VOICE = os.environ.get('TTS_VOICE', 'af_heart')
 TTS_SPEED = float(os.environ.get('TTS_SPEED', '1.0'))
-TTS_ENGINE_DIR = os.environ.get('TTS_ENGINE_DIR', '/home/admin/models/kokoro_trt')
-USE_TRT = os.environ.get('USE_TRT', 'true').lower() in ('true', '1', 'yes')
 HOST = os.environ.get('HOST', '0.0.0.0')
 PORT = int(os.environ.get('PORT', '8080'))
 
@@ -66,6 +64,10 @@ class NavigateRequest(BaseModel):
 class RenameLocationRequest(BaseModel):
     old_name: str
     new_name: str
+
+class AudioConfigRequest(BaseModel):
+    volume: Optional[float] = None
+    target: Optional[str] = None  # 'robot' or 'browser'
 
 # ── ROS2 Bridge Node ─────────────────────────────────────────────────────────
 
@@ -174,8 +176,8 @@ async def startup():
     
     # Init Voice
     pipeline = VoicePipeline(
-        ws_url=WS_URL, stt_model=STT_MODEL, tts_voice=TTS_VOICE,
-        tts_speed=TTS_SPEED, tts_engine_dir=TTS_ENGINE_DIR, use_trt=USE_TRT,
+        ws_url=WS_URL, stt_model=STT_MODEL, 
+        tts_voice=TTS_VOICE, tts_speed=TTS_SPEED,
     )
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, pipeline.load)
@@ -233,6 +235,28 @@ async def navigate(body: NavigateRequest):
     req.name = body.name
     res = bridge.call_srv(bridge._svc_navigate, req)
     return JSONResponse({'success': res.success if res else False})
+
+@app.get('/api/audio')
+async def get_audio_config():
+    return JSONResponse({
+        'volume': pipeline.speaker_volume if pipeline else 1.0,
+        'target': pipeline.speaker_target if pipeline else 'robot',
+    })
+
+@app.post('/api/audio')
+async def set_audio_config(body: AudioConfigRequest):
+    if pipeline is None:
+        return JSONResponse({'success': False, 'message': 'pipeline not ready'})
+    if body.volume is not None:
+        pipeline.speaker_volume = max(0.0, min(2.5, float(body.volume)))
+    if body.target is not None:
+        if body.target in ('robot', 'browser'):
+            pipeline.speaker_target = body.target
+    return JSONResponse({
+        'success': True,
+        'volume': pipeline.speaker_volume,
+        'target': pipeline.speaker_target,
+    })
 
 @app.post('/api/navigate/cancel')
 async def cancel_nav():

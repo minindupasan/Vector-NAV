@@ -186,6 +186,23 @@ html, body {
     font-weight: 800; 
 }
 
+/* Audio panel */
+.audio-target-row { display: flex; gap: 8px; margin-bottom: 16px; }
+.target-btn {
+    flex: 1; padding: 10px; background: var(--bg-elev); color: var(--text-dim);
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    font-weight: 700; font-size: 0.75rem; letter-spacing: 1px;
+    text-transform: uppercase; cursor: pointer; transition: all 0.15s;
+}
+.target-btn:hover { color: var(--text); }
+.target-btn.active { background: var(--accent, #34c759); color: #000; border-color: transparent; }
+.audio-panel .setting-group { display: flex; flex-direction: column; gap: 8px; }
+.audio-panel .setting-group label {
+    font-size: 0.6rem; color: var(--text-muted); text-transform: uppercase;
+    letter-spacing: 1px; display: flex; justify-content: space-between;
+}
+.audio-panel input[type=range] { width: 100%; }
+
 /* Stats */
 .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .stat-item { padding: 16px; background: var(--bg-elev); border-radius: var(--radius-sm); border: 1px solid var(--border); }

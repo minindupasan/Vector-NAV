@@ -9,6 +9,7 @@ following the same pattern as scripts/test_pipeline.py.
 import sys
 import json
 import logging
+import time
 import numpy as np
 from pathlib import Path
 
@@ -82,24 +83,23 @@ class VoicePipeline:
         stt_model: str = 'base.en',
         tts_voice: str = 'af_heart',
         tts_speed: float = 1.0,
-        tts_engine_dir: str = '/home/admin/models/kokoro_trt',
-        use_trt: bool = True,
         rag_top_k: int = 3,
     ):
         self.ws_url = ws_url
         self.stt_model = stt_model
         self.tts_voice = tts_voice
         self.tts_speed = tts_speed
-        self.tts_engine_dir = tts_engine_dir
-        self.use_trt = use_trt
         self.rag_top_k = rag_top_k
 
         self.whisper = None
         self.llm = None
         self.rag = None
-        self.tts = None
         self.tts_pipeline = None
         self.sample_rate = 24000
+
+        # Audio output config (mutable at runtime via web UI)
+        self.speaker_volume = 1.0   # 0.0 .. 2.5 — multiplier on top of base gain
+        self.speaker_target = 'robot'  # 'robot' | 'browser'
 
     def load(self):
         """Load all engines. Call once at startup."""
@@ -125,18 +125,12 @@ class VoicePipeline:
         logger.info('LLM engine created (connects on first use)')
 
         # TTS
-        if self.use_trt:
-            logger.info(f'Loading Kokoro TRT from {self.tts_engine_dir}...')
-            from vector_tts.kokoro_trt import KokoroTRT
-            self.tts = KokoroTRT(self.tts_engine_dir)
-            self.tts.load_voice(self.tts_voice)
-            self.sample_rate = self.tts.sample_rate
-            logger.info('Kokoro TRT ready')
-        else:
-            logger.info('Loading Kokoro TTS (PyTorch CPU)...')
-            from kokoro import KPipeline
-            self.tts_pipeline = KPipeline(lang_code='a', device='cpu')
-            logger.info('Kokoro TTS ready')
+        import torch
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        logger.info(f'Loading Kokoro TTS (PyTorch {device})...')
+        from kokoro import KPipeline
+        self.tts_pipeline = KPipeline(lang_code='a', device=device)
+        logger.info('Kokoro TTS ready')
 
         logger.info('Voice pipeline fully loaded')
 
@@ -176,17 +170,12 @@ class VoicePipeline:
         Synthesize text to float32 audio array.
         Replicates tts_node.py _synthesize_to_array() logic.
         """
-        if self.tts is not None:
-            audio_f = self.tts.synthesize(
-                text, voice=self.tts_voice, speed=self.tts_speed
-            )
-        else:
-            chunks = []
-            for _, _, audio in self.tts_pipeline(
-                text, voice=self.tts_voice, speed=self.tts_speed
-            ):
-                chunks.append(audio)
-            audio_f = np.concatenate(chunks).astype(np.float32)
+        chunks = []
+        for _, _, audio in self.tts_pipeline(
+            text, voice=self.tts_voice, speed=self.tts_speed
+        ):
+            chunks.append(audio)
+        audio_f = np.concatenate(chunks).astype(np.float32)
 
         return _trim_silence(audio_f, self.sample_rate)
 
@@ -219,24 +208,46 @@ class VoicePipeline:
         def on_sentence(sentence: str):
             if not sentence.strip():
                 return
+            logger.info(f'LLM sentence: "{sentence}"')
+            t0 = time.time()
             audio = self.synthesize(sentence)
+            logger.info(f'TTS synthesized in {time.time()-t0:.2f}s ({len(audio)} samples)')
             if len(audio) == 0:
                 return
-            # Browser playback (WAV chunk over WebSocket)
-            if on_tts_chunk:
+            target = self.speaker_target
+            vol = max(0.0, min(2.5, float(self.speaker_volume)))
+
+            # Browser playback (WAV chunk over WebSocket) — only when targeted
+            if target == 'browser' and on_tts_chunk:
                 wav_bytes = pcm_to_wav(audio, self.sample_rate)
                 on_tts_chunk(sentence, wav_bytes)
-            # Local i2s speaker playback via PulseAudio
-            if _sd is not None and _SPEAKER_DEVICE:
+
+            # Robot i2s speaker via PulseAudio (paplay).
+            # Stream s16le PCM at native 24 kHz; pulse handles resampling and
+            # buffering cleanly, avoiding the underruns sounddevice produces.
+            if target == 'robot':
                 try:
-                    _sd.play(audio, samplerate=self.sample_rate,
-                             device=_SPEAKER_DEVICE, blocking=True)
+                    import subprocess
+                    audio_out = np.clip(audio * 3.0 * vol, -1.0, 1.0)
+                    pcm16 = (audio_out * 32767.0).astype('<i2').tobytes()
+                    logger.info(f'Playing audio via paplay (vol={vol:.2f})')
+                    subprocess.run(
+                        ['paplay',
+                         '--raw',
+                         f'--rate={int(self.sample_rate)}',
+                         '--format=s16le',
+                         '--channels=1',
+                         '--latency-msec=200'],
+                        input=pcm16, check=False,
+                    )
                 except Exception as e:
                     logger.warning(f'Speaker playback failed: {e}')
 
+        logger.info(f'Querying LLM: "{text}"')
         result = self.llm.chat_stream(
             text, context=context, on_chunk=on_sentence
         )
+        logger.info(f'LLM response complete: {result.get("type", "text")}')
 
         return {
             'stt_text': text,
