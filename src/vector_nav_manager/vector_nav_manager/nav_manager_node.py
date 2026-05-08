@@ -37,7 +37,7 @@ from nav2_msgs.action import NavigateToPose
 from std_msgs.msg import Header
 
 from vector_interfaces.msg import LLMToolCall, RobotStats
-from vector_interfaces.srv import DeleteLocation, GetLocations, NavigateToLocation, SetLocation
+from vector_interfaces.srv import DeleteLocation, GetLocations, NavigateToLocation, SetLocation, RenameLocation
 
 CURRENT_POSE_FILE = Path('/tmp/vector_current_pose.json')
 STATS_FILE = Path('/tmp/vector_robot_stats.json')
@@ -117,6 +117,8 @@ class NavManagerNode(Node):
                             self._svc_get_locations, callback_group=cb)
         self.create_service(DeleteLocation, '/delete_location',
                             self._svc_delete_location, callback_group=cb)
+        self.create_service(RenameLocation, '/rename_location',
+                            self._svc_rename_location, callback_group=cb)
 
         self.get_logger().info(
             f'NavManager ready  locations={self._locations_path}  '
@@ -280,6 +282,33 @@ class NavManagerNode(Node):
             else:
                 res.success = False
                 res.message = f"Location '{name}' not found."
+        return res
+
+    def _svc_rename_location(self, req: RenameLocation.Request,
+                             res: RenameLocation.Response) -> RenameLocation.Response:
+        old = req.old_name.strip()
+        new = req.new_name.strip()
+        if not new:
+            res.success = False
+            res.message = "New name cannot be empty."
+            return res
+        
+        with self._lock:
+            if old not in self._locations:
+                res.success = False
+                res.message = f"Location '{old}' not found."
+                return res
+            if new in self._locations:
+                res.success = False
+                res.message = f"Location '{new}' already exists."
+                return res
+            
+            # Transfer coordinates
+            self._locations[new] = self._locations.pop(old)
+            self._save_locations()
+            res.success = True
+            res.message = f"Renamed '{old}' to '{new}'."
+            self.get_logger().info(res.message)
         return res
 
     # ── Navigation ────────────────────────────────────────────────────────────

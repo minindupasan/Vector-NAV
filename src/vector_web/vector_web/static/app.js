@@ -1,5 +1,5 @@
 /**
- * Vector Nav — Unified Control & Voice Assistant
+ * Vector Nav — Unified Control & Voice Assistant (Split Layout)
  */
 
 // ── Configuration ────────────────────────────────────────────────────────────
@@ -20,7 +20,6 @@ let joyLinear = 0.0;
 let joyAngular = 0.0;
 let maxLinear = 0.50;
 let maxAngular = 1.00;
-let minLinear = 0.07;
 let cmdInterval = null;
 
 const PRESETS = {
@@ -37,30 +36,23 @@ const statusText = document.getElementById('statusText');
 const stateLabel = document.getElementById('stateLabel');
 const spectrumCanvas = document.getElementById('spectrum');
 
-// Drawer Refs
-const menuBtn = document.getElementById('menu-btn');
-const closeDrawerBtn = document.getElementById('close-drawer');
-const drawer = document.getElementById('drawer');
-const drawerOverlay = document.getElementById('drawer-overlay');
-
 // Drive Mode Refs
 const driveOverlay = document.getElementById('drive-overlay');
 const enterDriveBtn = document.getElementById('enter-drive-btn');
 const closeDriveBtn = document.getElementById('close-drive');
 const maxSpeedSlider = document.getElementById('max-speed-slider');
-const minSpeedSlider = document.getElementById('min-speed-slider');
 const maxSpeedVal = document.getElementById('max-speed-val');
-const minSpeedVal = document.getElementById('min-speed-val');
 const driveBattery = document.getElementById('drive-stat-battery');
 const driveVel = document.getElementById('drive-stat-vel');
 
-// Stats & Control Refs
+// Stats Refs
 const headerBattery = document.getElementById('header-battery-fill');
 const headerBatteryText = document.getElementById('header-battery-text');
-const statBattery = document.getElementById('stat-battery');
 const statNav = document.getElementById('stat-nav');
-const statLoc = document.getElementById('stat-loc');
 const statVel = document.getElementById('stat-vel');
+const statPose = document.getElementById('stat-pose');
+
+// Waypoints Refs
 const locInput = document.getElementById('loc-input');
 const saveLocBtn = document.getElementById('save-loc-btn');
 const locList = document.getElementById('locations-list');
@@ -96,8 +88,8 @@ class SpectrumVisualizer {
         ctx.clearRect(0, 0, W, H);
         if (!this.analyser) return;
         this.analyser.getByteTimeDomainData(this.data);
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 2 * this.dpr;
+        ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+        ctx.lineWidth = 3 * this.dpr;
         ctx.beginPath();
         const sliceWidth = W / this.data.length;
         let x = 0;
@@ -119,12 +111,12 @@ function connectVoice() {
     voiceWs = new WebSocket(`${protocol}//${location.hostname}:${APP_PORT}/ws/voice`);
     voiceWs.onopen = () => {
         statusDot.className = 'status-dot connected';
-        statusText.textContent = 'Voice Ready';
+        statusText.textContent = 'Ready';
         micBtn.disabled = false;
     };
     voiceWs.onclose = () => {
         statusDot.className = 'status-dot';
-        statusText.textContent = 'Disconnected';
+        statusText.textContent = 'Offline';
         micBtn.disabled = true;
         setTimeout(connectVoice, 2000);
     };
@@ -145,7 +137,6 @@ function connectBridge() {
     bridgeWs.onmessage = (evt) => {
         const msg = JSON.parse(evt.data);
         if (msg.type === 'stats') updateStats(msg);
-        else if (msg.type === 'ack') showToast(msg.message, msg.success);
     };
 }
 
@@ -194,12 +185,6 @@ function handleVoiceMessage(evt) {
         if (msg.type === 'stt') addMessage('user', msg.text);
         else if (msg.type === 'tts_chunk') addMessage('bot', msg.text);
         else if (msg.type === 'done') setState('idle');
-        else if (msg.type === 'error') {
-            addMessage('bot', 'Error: ' + msg.message);
-            setState('idle');
-        }
-    } else {
-        // Audio playback handled by browser/OS
     }
 }
 
@@ -226,17 +211,19 @@ function updateStats(msg) {
     headerBatteryText.textContent = batStr;
     headerBattery.style.width = batStr;
     headerBattery.style.background = pct > 50 ? '#34c759' : pct > 20 ? '#ff9800' : '#ff3b30';
-    
-    statBattery.textContent = batStr;
     if (driveBattery) driveBattery.textContent = batStr;
 
     statNav.textContent = msg.navigation_status || 'Idle';
-    statLoc.textContent = msg.current_location || 'Unknown';
     
     if (msg.linear_velocity !== undefined) {
         const velStr = `${msg.linear_velocity.toFixed(2)} m/s`;
         if (statVel) statVel.textContent = velStr;
         if (driveVel) driveVel.textContent = velStr;
+    }
+
+    if (msg.pose) {
+        const p = msg.pose;
+        statPose.textContent = `X: ${p.x.toFixed(2)} Y: ${p.y.toFixed(2)} θ: ${(p.yaw * 180 / Math.PI).toFixed(1)}°`;
     }
 }
 
@@ -257,11 +244,18 @@ function renderLocations(locs) {
         const item = document.createElement('div');
         item.className = 'location-item';
         item.innerHTML = `
-            <span class="location-name">${name}</span>
-            <span class="delete-btn" data-name="${name}">&times;</span>
+            <div class="loc-main">
+                <span class="location-name">${name}</span>
+                <span class="location-coords">X: ${data.x.toFixed(2)} Y: ${data.y.toFixed(2)}</span>
+            </div>
+            <div class="loc-actions">
+                <span class="edit-btn" data-name="${name}">✎</span>
+                <span class="delete-btn" data-name="${name}">&times;</span>
+            </div>
         `;
-        item.querySelector('.location-name').onclick = () => navigateTo(name);
+        item.querySelector('.loc-main').onclick = () => navigateTo(name);
         item.querySelector('.delete-btn').onclick = (e) => deleteLocation(e.target.dataset.name);
+        item.querySelector('.edit-btn').onclick = (e) => editLocationName(e.target.dataset.name);
         locList.appendChild(item);
     }
 }
@@ -273,16 +267,43 @@ function saveLocation() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name })
-    }).then(() => {
-        locInput.value = '';
-        fetchLocations();
+    }).then(r => r.json()).then(res => {
+        if (res.success) {
+            locInput.value = '';
+            fetchLocations();
+            showToast(`Saved '${name}'`, true);
+        } else {
+            showToast(res.message || 'Failed to save', false);
+        }
     });
 }
 
 function deleteLocation(name) {
+    if (!confirm(`Delete '${name}'?`)) return;
     fetch(`${location.protocol}//${location.hostname}:${APP_PORT}/api/locations/${encodeURIComponent(name)}`, {
         method: 'DELETE'
-    }).then(fetchLocations);
+    }).then(() => {
+        fetchLocations();
+        showToast(`Deleted '${name}'`, true);
+    });
+}
+
+function editLocationName(oldName) {
+    const newName = prompt(`Rename '${oldName}' to:`, oldName);
+    if (!newName || newName === oldName) return;
+    
+    fetch(`${location.protocol}//${location.hostname}:${APP_PORT}/api/locations`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ old_name: oldName, new_name: newName })
+    }).then(r => r.json()).then(res => {
+        if (res.success) {
+            fetchLocations();
+            showToast(`Renamed to '${newName}'`, true);
+        } else {
+            showToast(res.message || 'Failed to rename', false);
+        }
+    });
 }
 
 function navigateTo(name) {
@@ -290,7 +311,7 @@ function navigateTo(name) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name })
-    });
+    }).then(() => showToast(`Navigating to ${name}`, true));
 }
 
 let linearManager = null;
@@ -303,13 +324,12 @@ function initJoysticks() {
     document.getElementById('joystick-linear').innerHTML = '';
     document.getElementById('joystick-angular').innerHTML = '';
 
-    // Linear Joystick (Left)
     linearManager = nipplejs.create({
         zone: document.getElementById('joystick-linear'),
         mode: 'static',
-        position: { left: '80px', top: '80px' },
+        position: { left: '100px', top: '100px' },
         color: '#ffffff',
-        size: 130,
+        size: 150,
         threshold: 0.1,
         lockY: true 
     });
@@ -317,10 +337,8 @@ function initJoysticks() {
     linearManager.on('move', (evt, data) => {
         if (!data.vector) return;
         joyLinearActive = true;
-        const sensitivity = 2.0;
-        let forward = data.vector.y * sensitivity;
-        forward = Math.max(-1.0, Math.min(1.0, forward));
-        joyLinear = forward * maxLinear;
+        joyLinear = data.vector.y * 2.0 * maxLinear;
+        joyLinear = Math.max(-maxLinear, Math.min(maxLinear, joyLinear));
     });
 
     linearManager.on('end', () => {
@@ -329,13 +347,12 @@ function initJoysticks() {
         if (!joyAngularActive) sendWS({ type: 'stop' });
     });
 
-    // Angular Joystick (Right)
     angularManager = nipplejs.create({
         zone: document.getElementById('joystick-angular'),
         mode: 'static',
-        position: { left: '80px', top: '80px' },
+        position: { left: '100px', top: '100px' },
         color: '#ffffff',
-        size: 130,
+        size: 150,
         threshold: 0.1,
         lockX: true
     });
@@ -343,10 +360,8 @@ function initJoysticks() {
     angularManager.on('move', (evt, data) => {
         if (!data.vector) return;
         joyAngularActive = true;
-        const sensitivity = 2.0;
-        let turn = -data.vector.x * sensitivity;
-        turn = Math.max(-1.0, Math.min(1.0, turn));
-        joyAngular = turn * maxAngular;
+        joyAngular = -data.vector.x * 2.0 * maxAngular;
+        joyAngular = Math.max(-maxAngular, Math.min(maxAngular, joyAngular));
     });
 
     angularManager.on('end', () => {
@@ -377,18 +392,7 @@ function showToast(msg, success) {
 }
 
 // ── Listeners ────────────────────────────────────────────────────────────────
-menuBtn.onclick = () => { 
-    drawer.classList.add('active'); 
-    drawerOverlay.classList.add('active'); 
-};
-closeDrawerBtn.onclick = drawerOverlay.onclick = () => { 
-    drawer.classList.remove('active'); 
-    drawerOverlay.classList.remove('active'); 
-};
-
 enterDriveBtn.onclick = () => {
-    drawer.classList.remove('active');
-    drawerOverlay.classList.remove('active');
     driveOverlay.classList.add('active');
     setTimeout(initJoysticks, 200);
 };
@@ -402,11 +406,6 @@ closeDriveBtn.onclick = () => {
 maxSpeedSlider.oninput = () => {
     maxLinear = parseFloat(maxSpeedSlider.value);
     maxSpeedVal.textContent = maxLinear.toFixed(2);
-};
-
-minSpeedSlider.oninput = () => {
-    minLinear = parseFloat(minSpeedSlider.value);
-    minSpeedVal.textContent = minLinear.toFixed(2);
 };
 
 micBtn.onmousedown = micBtn.ontouchstart = (e) => { e.preventDefault(); startRecording(); };

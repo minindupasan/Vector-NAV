@@ -29,7 +29,7 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
 from vector_interfaces.msg import RobotStats
 from vector_interfaces.srv import (
-    DeleteLocation, GetLocations, NavigateToLocation, SetLocation,
+    DeleteLocation, GetLocations, NavigateToLocation, SetLocation, RenameLocation
 )
 
 from .audio_utils import decode_webm_to_pcm
@@ -63,6 +63,10 @@ class SaveLocationRequest(BaseModel):
 class NavigateRequest(BaseModel):
     name: str
 
+class RenameLocationRequest(BaseModel):
+    old_name: str
+    new_name: str
+
 # ── ROS2 Bridge Node ─────────────────────────────────────────────────────────
 
 class UnifiedBridgeNode(Node):
@@ -81,6 +85,7 @@ class UnifiedBridgeNode(Node):
             'status_message': 'Connecting...',
             'linear_velocity': 0.0,
             'angular_velocity': 0.0,
+            'pose': {'x': 0.0, 'y': 0.0, 'yaw': 0.0},
         }
         
         cb = ReentrantCallbackGroup()
@@ -93,6 +98,7 @@ class UnifiedBridgeNode(Node):
         self._svc_set_loc   = self.create_client(SetLocation, '/set_location', callback_group=cb)
         self._svc_get_locs  = self.create_client(GetLocations, '/get_locations', callback_group=cb)
         self._svc_del_loc   = self.create_client(DeleteLocation, '/delete_location', callback_group=cb)
+        self._svc_rename_loc = self.create_client(RenameLocation, '/rename_location', callback_group=cb)
 
         # Teleop Watchdog
         self._target_twist = Twist()
@@ -128,7 +134,17 @@ class UnifiedBridgeNode(Node):
         asyncio.run_coroutine_threadsafe(self._broadcast(self._latest_stats), self._loop)
 
     def _on_pose(self, msg: PoseWithCovarianceStamped):
-        pass # Optional: broadcast pose if needed
+        p = msg.pose.pose
+        # Convert quaternion to yaw
+        q = p.orientation
+        yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+        
+        self._latest_stats['pose'] = {
+            'x': round(p.position.x, 3),
+            'y': round(p.position.y, 3),
+            'yaw': round(yaw, 3),
+        }
+        asyncio.run_coroutine_threadsafe(self._broadcast(self._latest_stats), self._loop)
 
     async def _broadcast(self, data: dict):
         with self._ws_lock:
@@ -201,6 +217,14 @@ async def delete_location(name: str):
     req = DeleteLocation.Request()
     req.name = name
     res = bridge.call_srv(bridge._svc_del_loc, req)
+    return JSONResponse({'success': res.success if res else False})
+
+@app.put('/api/locations')
+async def rename_location(body: RenameLocationRequest):
+    req = RenameLocation.Request()
+    req.old_name = body.old_name
+    req.new_name = body.new_name
+    res = bridge.call_srv(bridge._svc_rename_loc, req)
     return JSONResponse({'success': res.success if res else False})
 
 @app.post('/api/navigate')

@@ -14,6 +14,14 @@
     <div id="drive-overlay" class="drive-overlay">
         <button id="close-drive" class="close-drive-btn">&times;</button>
         
+        <div id="orientation-notice" class="orientation-notice">
+            <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="5" y="2" width="14" height="20" rx="2" transform="rotate(90 12 12)"></rect>
+                <path d="M12 15l-3-3 3-3M12 12h5"></path>
+            </svg>
+            <p>Please rotate your device to landscape</p>
+        </div>
+
         <div class="drive-layout">
             <div class="joystick-container left">
                 <div id="joystick-linear"></div>
@@ -38,11 +46,6 @@
                         <input type="range" id="max-speed-slider" min="0.1" max="1.5" step="0.05" value="0.5">
                         <span id="max-speed-val">0.50</span>
                     </div>
-                    <div class="setting-group">
-                        <label>MIN SPEED (m/s)</label>
-                        <input type="range" id="min-speed-slider" min="0.01" max="0.2" step="0.01" value="0.07">
-                        <span id="min-speed-val">0.07</span>
-                    </div>
                 </div>
             </div>
 
@@ -53,64 +56,7 @@
         </div>
     </div>
 
-    <!-- SIDEBAR / DRAWER -->
-    <div id="drawer-overlay" class="drawer-overlay"></div>
-    <aside id="drawer" class="drawer">
-        <div class="drawer-handle"></div>
-        <div class="drawer-header">
-            <h2>Robot Settings</h2>
-            <button id="close-drawer" class="close-btn">&times;</button>
-        </div>
-        
-        <div class="drawer-content">
-            <button id="enter-drive-btn" class="drive-mode-btn">
-                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5">
-                    <circle cx="12" cy="12" r="10"></circle>
-                    <path d="M12 2v20M2 12h20"></path>
-                </svg>
-                Enter Drive Mode
-            </button>
-
-            <!-- STATS -->
-            <section class="panel">
-                <h3 class="panel-title">Live Telemetry</h3>
-                <div class="stats-grid">
-                    <div class="stat-item">
-                        <span class="stat-label">Power</span>
-                        <span class="stat-value" id="stat-battery">--%</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Status</span>
-                        <span class="stat-value" id="stat-nav">Unknown</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Location</span>
-                        <span class="stat-value" id="stat-loc">Unknown</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Velocity</span>
-                        <span class="stat-value" id="stat-vel">0.0 m/s</span>
-                    </div>
-                </div>
-            </section>
-
-            <!-- LOCATIONS -->
-            <section class="panel">
-                <h3 class="panel-title">Waypoints</h3>
-                <div class="save-row">
-                    <input type="text" id="loc-input" placeholder="New location name..." autocomplete="off">
-                    <button id="save-loc-btn" class="action-btn">Save</button>
-                </div>
-                <div id="locations-list" class="locations-list">
-                    <div class="empty-msg">No waypoints saved</div>
-                </div>
-            </section>
-
-            <button id="stop-nav-btn" class="stop-btn">Halt Robot</button>
-        </div>
-    </aside>
-
-    <!-- MAIN APP -->
+    <!-- MAIN APP SHELL -->
     <div class="app-shell">
         <header class="header">
             <div class="brand">
@@ -121,26 +67,68 @@
                     <div class="battery-level" id="header-battery-fill"></div>
                     <span id="header-battery-text">--%</span>
                 </div>
-                <button id="menu-btn" class="menu-btn">
-                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5">
-                        <line x1="3" y1="12" x2="21" y2="12"></line>
-                        <line x1="3" y1="6" x2="21" y2="6"></line>
-                        <line x1="3" y1="18" x2="21" y2="18"></line>
+                <button id="enter-drive-btn" class="drive-mode-trigger">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <path d="M12 2v20M2 12h20"></path>
                     </svg>
+                    DRIVE
                 </button>
             </div>
         </header>
 
-        <main class="chat-container" id="chat"></main>
+        <div class="main-layout">
+            <!-- LEFT HALF: CHAT -->
+            <section class="layout-column chat-side">
+                <div class="section-header">
+                    <span class="section-tag">Voice Chat</span>
+                </div>
+                <main class="chat-container" id="chat"></main>
+                <div class="spectrum-wrap">
+                    <canvas id="spectrum" class="spectrum"></canvas>
+                </div>
+            </section>
 
-        <div class="spectrum-wrap">
-            <canvas id="spectrum" class="spectrum"></canvas>
+            <!-- RIGHT HALF: TELEMETRY & WAYPOINTS -->
+            <section class="layout-column info-side">
+                <!-- TELEMETRY -->
+                <div class="panel telemetry-panel">
+                    <h3 class="panel-title">Live Telemetry</h3>
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <span class="stat-label">Status</span>
+                            <span class="stat-value" id="stat-nav">Unknown</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Velocity</span>
+                            <span class="stat-value" id="stat-vel">0.0 m/s</span>
+                        </div>
+                        <div class="stat-item full-width">
+                            <span class="stat-label">Current Pose</span>
+                            <span class="stat-value pose-value" id="stat-pose">X: 0.00 Y: 0.00 θ: 0.0°</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- WAYPOINTS -->
+                <div class="panel waypoints-panel">
+                    <h3 class="panel-title">Waypoints</h3>
+                    <div class="save-row">
+                        <input type="text" id="loc-input" placeholder="New location name..." autocomplete="off">
+                        <button id="save-loc-btn" class="action-btn">Save</button>
+                    </div>
+                    <div id="locations-list" class="locations-list">
+                        <div class="empty-msg">No waypoints saved</div>
+                    </div>
+                    <button id="stop-nav-btn" class="stop-btn">Halt Robot</button>
+                </div>
+            </section>
         </div>
 
         <footer class="controls">
             <div class="status-wrap">
                 <span class="status-dot" id="statusDot"></span>
-                <span id="statusText">System Offline</span>
+                <span id="statusText">Offline</span>
             </div>
             
             <button class="mic-btn" id="micBtn" disabled>
