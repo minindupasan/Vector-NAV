@@ -22,8 +22,8 @@ sudo nvpmodel -m 0
 sudo jetson_clocks
 
 # Stop any leftover nano_llm containers regardless of name
-sudo docker rm -f nano_llm_server 2>/dev/null || true
-sudo docker ps -q --filter ancestor=dustynv/nano_llm:r36.4.0 | xargs -r sudo docker stop 2>/dev/null || true
+docker rm -f nano_llm_server 2>/dev/null || true
+docker ps -q --filter ancestor=dustynv/nano_llm:r36.4.0 | xargs -r docker stop 2>/dev/null || true
 
 # Launch detached container — systemd tracks it via docker ps (Type=forking)
 /home/admin/jetson-containers/jetson-containers run \
@@ -33,14 +33,24 @@ sudo docker ps -q --filter ancestor=dustynv/nano_llm:r36.4.0 | xargs -r sudo doc
   --env HUGGINGFACE_TOKEN="$HUGGINGFACE_TOKEN" \
   -v "$SCRIPT_DIR/fix_tied_embeddings.py:/tmp/fix_tied_embeddings.py:ro" \
   dustynv/nano_llm:r36.4.0 \
-  bash -c "python3 /tmp/fix_tied_embeddings.py meta-llama/Llama-3.2-3B-Instruct && \
+  bash -c "huggingface-cli download meta-llama/Llama-3.2-3B-Instruct \
+      --local-dir-use-symlinks False && \
+    python3 /tmp/fix_tied_embeddings.py meta-llama/Llama-3.2-3B-Instruct && \
     python3 -m nano_llm.agents.web_chat \
       --model meta-llama/Llama-3.2-3B-Instruct \
       --api mlc \
       --quantization q4f16_ft \
-      --max-context-len 1024 \
-      --repetition-penalty 1.5 \
+      --max-context-len 2048 \
+      --max-new-tokens 150 \
       --temperature 0.6 \
-      --chat-template llama-3"
+      --top-p 0.9 \
+      --repetition-penalty 1.1 \
+      --chat-template llama-3 \
+      --system-prompt 'You are VECTOR NAV, a warehouse robot assistant. Always reply in 1 to 2 short plain-English sentences. Never use markdown, never use lists, never repeat yourself. Stop after one reply.'"
 
 echo "nano_llm_server container started (detached)"
+
+# Block on the container so systemd tracks its lifecycle. When the
+# container exits, this script exits with the same status, allowing
+# Restart=on-failure to bring it back up.
+exec docker wait nano_llm_server

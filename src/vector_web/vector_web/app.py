@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 # ── Configuration from environment ───────────────────────────────────────────
 
 WS_URL = os.environ.get('WS_URL', 'wss://localhost:49000')
-STT_MODEL = os.environ.get('STT_MODEL', 'base.en')
+STT_MODEL = os.environ.get('STT_MODEL', 'tiny.en')
 TTS_VOICE = os.environ.get('TTS_VOICE', 'af_heart')
 TTS_SPEED = float(os.environ.get('TTS_SPEED', '1.0'))
 HOST = os.environ.get('HOST', '0.0.0.0')
@@ -176,8 +176,10 @@ async def startup():
     
     # Init Voice
     pipeline = VoicePipeline(
-        ws_url=WS_URL, stt_model=STT_MODEL, 
+        ws_url=WS_URL, stt_model=STT_MODEL,
         tts_voice=TTS_VOICE, tts_speed=TTS_SPEED,
+        tts_engine_dir=os.environ.get('TTS_ENGINE_DIR', '/home/admin/models/kokoro_trt'),
+        use_trt=os.environ.get('USE_TRT', 'true').lower() not in ('0', 'false', 'no'),
     )
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, pipeline.load)
@@ -270,15 +272,30 @@ async def voice_ws(websocket: WebSocket):
     await websocket.accept()
     try:
         while True:
-            data = await websocket.receive_bytes()
+            msg = await websocket.receive()
             loop = asyncio.get_event_loop()
-            pcm = await loop.run_in_executor(None, decode_webm_to_pcm, data)
-            
-            def run_voice():
-                return pipeline.process(pcm, on_tts_chunk=lambda s, b: asyncio.run_coroutine_threadsafe(_send_tts_chunk(websocket, s, b), loop))
 
-            result = await loop.run_in_executor(None, run_voice)
-            await websocket.send_json({'type': 'stt', 'text': result['stt_text'], 'confidence': result['confidence']})
+            tts_cb = lambda s, b: asyncio.run_coroutine_threadsafe(
+                _send_tts_chunk(websocket, s, b), loop)
+            stt_cb = lambda t, c: asyncio.run_coroutine_threadsafe(
+                websocket.send_json({'type': 'stt', 'text': t, 'confidence': c}), loop)
+
+            if 'bytes' in msg and msg['bytes'] is not None:
+                data = msg['bytes']
+                pcm = await loop.run_in_executor(None, decode_webm_to_pcm, data)
+                await loop.run_in_executor(
+                    None,
+                    lambda: pipeline.process(pcm, on_tts_chunk=tts_cb, on_stt=stt_cb),
+                )
+            elif 'text' in msg and msg['text'] is not None:
+                payload = json.loads(msg['text'])
+                if payload.get('type') == 'text':
+                    text = (payload.get('text') or '').strip()
+                    if text:
+                        await loop.run_in_executor(
+                            None,
+                            lambda: pipeline.process_text(text, on_tts_chunk=tts_cb),
+                        )
             await websocket.send_json({'type': 'done'})
     except WebSocketDisconnect: pass
 
@@ -305,9 +322,10 @@ async def control_ws(websocket: WebSocket):
     finally:
         with bridge._ws_lock: bridge._ws_clients.discard(websocket)
 
-async def _send_tts_chunk(websocket: WebSocket, text: str, wav_bytes: bytes):
+async def _send_tts_chunk(websocket: WebSocket, text: str, wav_bytes: bytes | None):
     await websocket.send_json({'type': 'tts_chunk', 'text': text})
-    await websocket.send_bytes(wav_bytes)
+    if wav_bytes is not None:
+        await websocket.send_bytes(wav_bytes)
 
 # ── Utils & Entry ───────────────────────────────────────────────────────────
 

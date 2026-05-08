@@ -80,20 +80,25 @@ class VoicePipeline:
     def __init__(
         self,
         ws_url: str = 'wss://localhost:49000',
-        stt_model: str = 'base.en',
+        stt_model: str = 'tiny.en',
         tts_voice: str = 'af_heart',
         tts_speed: float = 1.0,
+        tts_engine_dir: str = '/home/admin/models/kokoro_trt',
+        use_trt: bool = True,
         rag_top_k: int = 3,
     ):
         self.ws_url = ws_url
         self.stt_model = stt_model
         self.tts_voice = tts_voice
         self.tts_speed = tts_speed
+        self.tts_engine_dir = tts_engine_dir
+        self.use_trt = use_trt
         self.rag_top_k = rag_top_k
 
         self.whisper = None
         self.llm = None
         self.rag = None
+        self.tts = None
         self.tts_pipeline = None
         self.sample_rate = 24000
 
@@ -124,13 +129,26 @@ class VoicePipeline:
         self.llm = LLMEngine(ws_url=self.ws_url, tools=tools)
         logger.info('LLM engine created (connects on first use)')
 
-        # TTS
-        import torch
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        logger.info(f'Loading Kokoro TTS (PyTorch {device})...')
-        from kokoro import KPipeline
-        self.tts_pipeline = KPipeline(lang_code='a', device=device)
-        logger.info('Kokoro TTS ready')
+        # TTS — TensorRT (FP32 decoder) with PyTorch failsafe
+        loaded_trt = False
+        if self.use_trt:
+            try:
+                logger.info(f'Loading Kokoro TRT from {self.tts_engine_dir}...')
+                from vector_tts.kokoro_trt import KokoroTRT
+                self.tts = KokoroTRT(self.tts_engine_dir)
+                self.tts.load_voice(self.tts_voice)
+                self.sample_rate = self.tts.sample_rate
+                logger.info('Kokoro TRT ready')
+                loaded_trt = True
+            except Exception as e:
+                logger.warning(f'Kokoro TRT load failed ({e}); falling back to PyTorch')
+        if not loaded_trt:
+            import torch
+            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            logger.info(f'Loading Kokoro TTS (PyTorch {device})...')
+            from kokoro import KPipeline
+            self.tts_pipeline = KPipeline(lang_code='a', device=device)
+            logger.info('Kokoro TTS ready')
 
         logger.info('Voice pipeline fully loaded')
 
@@ -166,23 +184,27 @@ class VoicePipeline:
         return text, confidence, info.language
 
     def synthesize(self, text: str) -> np.ndarray:
-        """
-        Synthesize text to float32 audio array.
-        Replicates tts_node.py _synthesize_to_array() logic.
-        """
-        chunks = []
-        for _, _, audio in self.tts_pipeline(
-            text, voice=self.tts_voice, speed=self.tts_speed
-        ):
-            chunks.append(audio)
-        audio_f = np.concatenate(chunks).astype(np.float32)
+        """Synthesize text to float32 audio array."""
+        if self.tts is not None:
+            audio_f = self.tts.synthesize(
+                text, voice=self.tts_voice, speed=self.tts_speed
+            )
+        else:
+            chunks = []
+            for _, _, audio in self.tts_pipeline(
+                text, voice=self.tts_voice, speed=self.tts_speed
+            ):
+                chunks.append(audio)
+            audio_f = np.concatenate(chunks).astype(np.float32)
 
         return _trim_silence(audio_f, self.sample_rate)
 
-    def process(self, audio_pcm: np.ndarray, on_tts_chunk=None) -> dict:
+    def process(self, audio_pcm: np.ndarray, on_tts_chunk=None, on_stt=None) -> dict:
         """
         Full pipeline: STT → RAG → LLM (streaming) → TTS per sentence.
 
+        on_stt(text: str, confidence: float) is called as soon as STT
+        completes, so the UI can render the user message before LLM/TTS.
         on_tts_chunk(text: str, wav_bytes: bytes) is called for each
         sentence as it is synthesized, enabling streaming playback.
 
@@ -192,6 +214,10 @@ class VoicePipeline:
         text, confidence, language = self.transcribe(audio_pcm)
         logger.info(f'STT: "{text}" (confidence={confidence:.2f})')
 
+        if on_stt:
+            try: on_stt(text, confidence)
+            except Exception as e: logger.warning(f'on_stt callback failed: {e}')
+
         if not text:
             return {
                 'stt_text': '',
@@ -200,6 +226,16 @@ class VoicePipeline:
                 'llm_type': 'text',
             }
 
+        return self._run_llm(text, confidence, on_tts_chunk)
+
+    def process_text(self, text: str, on_tts_chunk=None) -> dict:
+        """Same as process() but starts from typed text (no STT)."""
+        text = (text or '').strip()
+        if not text:
+            return {'stt_text': '', 'confidence': 1.0, 'llm_response': '', 'llm_type': 'text'}
+        return self._run_llm(text, 1.0, on_tts_chunk)
+
+    def _run_llm(self, text: str, confidence: float, on_tts_chunk):
         # 2) RAG retrieval
         results = self.rag.retrieve(text)
         context = self.rag.format_context(results)
@@ -215,31 +251,43 @@ class VoicePipeline:
             if len(audio) == 0:
                 return
             target = self.speaker_target
-            vol = max(0.0, min(2.5, float(self.speaker_volume)))
 
-            # Browser playback (WAV chunk over WebSocket) — only when targeted
-            if target == 'browser' and on_tts_chunk:
-                wav_bytes = pcm_to_wav(audio, self.sample_rate)
+            # Always notify the UI with the sentence text so the chat updates
+            # regardless of audio target. Send WAV bytes only when the browser
+            # is the playback target.
+            if on_tts_chunk:
+                wav_bytes = pcm_to_wav(audio, self.sample_rate) if target == 'browser' else None
                 on_tts_chunk(sentence, wav_bytes)
 
             # Robot i2s speaker via PulseAudio (paplay).
-            # Stream s16le PCM at native 24 kHz; pulse handles resampling and
-            # buffering cleanly, avoiding the underruns sounddevice produces.
+            # Stream s16le PCM at native 24 kHz in ~100 ms chunks so slider
+            # changes apply mid-sentence. paplay's own buffering keeps it
+            # underrun-free.
             if target == 'robot':
                 try:
                     import subprocess
-                    audio_out = np.clip(audio * 3.0 * vol, -1.0, 1.0)
-                    pcm16 = (audio_out * 32767.0).astype('<i2').tobytes()
-                    logger.info(f'Playing audio via paplay (vol={vol:.2f})')
-                    subprocess.run(
+                    sr = int(self.sample_rate)
+                    chunk_n = max(1, sr // 10)  # ~100 ms
+                    proc = subprocess.Popen(
                         ['paplay',
                          '--raw',
-                         f'--rate={int(self.sample_rate)}',
+                         f'--rate={sr}',
                          '--format=s16le',
                          '--channels=1',
                          '--latency-msec=200'],
-                        input=pcm16, check=False,
+                        stdin=subprocess.PIPE,
                     )
+                    logger.info(f'Playing audio via paplay (streaming, vol live)')
+                    try:
+                        for i in range(0, len(audio), chunk_n):
+                            v = max(0.0, min(2.5, float(self.speaker_volume)))
+                            seg = np.clip(audio[i:i+chunk_n] * 3.0 * v, -1.0, 1.0)
+                            pcm16 = (seg * 32767.0).astype('<i2').tobytes()
+                            proc.stdin.write(pcm16)
+                        proc.stdin.close()
+                    except BrokenPipeError:
+                        pass
+                    proc.wait()
                 except Exception as e:
                     logger.warning(f'Speaker playback failed: {e}')
 
