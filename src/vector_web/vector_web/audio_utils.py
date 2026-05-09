@@ -11,8 +11,15 @@ import subprocess
 import numpy as np
 
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 def decode_webm_to_pcm(webm_bytes: bytes, target_sr: int = 16000) -> np.ndarray:
     """Decode WebM/Opus audio to 16kHz mono float32 numpy array using ffmpeg."""
+    if not webm_bytes:
+        return np.array([], dtype=np.float32)
+
     cmd = [
         'ffmpeg',
         '-i', 'pipe:0',
@@ -23,17 +30,24 @@ def decode_webm_to_pcm(webm_bytes: bytes, target_sr: int = 16000) -> np.ndarray:
         '-loglevel', 'error',
         'pipe:1',
     ]
-    proc = subprocess.run(
-        cmd,
-        input=webm_bytes,
-        capture_output=True,
-        timeout=30,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(f"ffmpeg decode failed: {proc.stderr.decode()}")
-    if len(proc.stdout) == 0:
-        raise RuntimeError("ffmpeg produced no audio output")
-    return np.frombuffer(proc.stdout, dtype=np.float32)
+    try:
+        proc = subprocess.run(
+            cmd,
+            input=webm_bytes,
+            capture_output=True,
+            timeout=10,
+        )
+        if proc.returncode != 0:
+            logger.warning(f"ffmpeg decode failed: {proc.stderr.decode().strip()}")
+            return np.array([], dtype=np.float32)
+        
+        if len(proc.stdout) == 0:
+            return np.array([], dtype=np.float32)
+            
+        return np.frombuffer(proc.stdout, dtype=np.float32)
+    except Exception as e:
+        logger.error(f"Error during audio decoding: {e}")
+        return np.array([], dtype=np.float32)
 
 
 def pcm_to_wav(audio: np.ndarray, sample_rate: int = 24000) -> bytes:

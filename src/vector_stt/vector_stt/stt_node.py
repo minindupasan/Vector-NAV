@@ -137,20 +137,22 @@ class STTNode(Node):
                     self._capture_command(rec_chunk)
             except Exception as e:
                 self.get_logger().error(f'Listen loop error: {e}')
+                time.sleep(1.0)
 
     # ── Wake word detection (openwakeword, ~10ms per frame) ──────────────
 
     def _wait_for_wake(self, chunk_size: int) -> None:
-        """Run openwakeword continuously until wake word is detected.
-        Also handles barge-in: detects wake word even while TTS is speaking."""
+        """Run openwakeword continuously until wake word is detected."""
         while self._running and not self._awake:
+
             try:
+                # Use a small timeout so we don't block forever if web audio arrives
                 chunk = sd.rec(
                     chunk_size, samplerate=self._sr, channels=1,
                     dtype='int16', blocking=True,
                 ).flatten()
             except Exception:
-                sd.sleep(200)
+                time.sleep(0.1)
                 continue
 
             prediction = self._oww.predict(chunk)

@@ -16,6 +16,7 @@ import math
 import time
 from pathlib import Path
 from typing import Optional
+import numpy as np
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
@@ -27,13 +28,13 @@ from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
-from vector_interfaces.msg import RobotStats
+from std_msgs.msg import String, Float32MultiArray
+from vector_interfaces.msg import RobotStats, SttResult
 from vector_interfaces.srv import (
     DeleteLocation, GetLocations, NavigateToLocation, SetLocation, RenameLocation
 )
 
-from .audio_utils import decode_webm_to_pcm
-from .pipeline import VoicePipeline
+from .audio_utils import pcm_to_wav
 
 logging.basicConfig(
     level=logging.INFO,
@@ -43,10 +44,6 @@ logger = logging.getLogger(__name__)
 
 # ── Configuration from environment ───────────────────────────────────────────
 
-WS_URL = os.environ.get('WS_URL', 'wss://localhost:49000')
-STT_MODEL = os.environ.get('STT_MODEL', 'tiny.en')
-TTS_VOICE = os.environ.get('TTS_VOICE', 'af_heart')
-TTS_SPEED = float(os.environ.get('TTS_SPEED', '1.0'))
 HOST = os.environ.get('HOST', '0.0.0.0')
 PORT = int(os.environ.get('PORT', '8080'))
 
@@ -76,7 +73,11 @@ class UnifiedBridgeNode(Node):
         super().__init__('vector_web_bridge')
         self._loop = loop
         self._ws_clients: set[WebSocket] = set()
+        self._voice_clients: set[WebSocket] = set()
         self._ws_lock = threading.Lock()
+        
+        self._speaker_volume = 1.0
+        self._speaker_target = 'robot'
         
         self._latest_stats: dict = {
             'type': 'stats',
@@ -91,11 +92,18 @@ class UnifiedBridgeNode(Node):
         }
         
         cb = ReentrantCallbackGroup()
-        self._cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         
+        # Publishers
+        self._stt_pub = self.create_publisher(SttResult, '/stt/text', 10)
+        
+        # Subscribers
         self.create_subscription(RobotStats, '/robot_stats', self._on_stats, 10, callback_group=cb)
         self.create_subscription(PoseWithCovarianceStamped, '/amcl_pose', self._on_pose, 10, callback_group=cb)
+        self.create_subscription(SttResult, '/stt/text', self._on_stt, 10, callback_group=cb)
+        self.create_subscription(String, '/tts/input', self._on_tts_input, 10, callback_group=cb)
+        self.create_subscription(Float32MultiArray, '/tts/audio/stream', self._on_tts_audio, 10, callback_group=cb)
         
+        # Services
         self._svc_navigate = self.create_client(NavigateToLocation, '/navigate_to_location', callback_group=cb)
         self._svc_set_loc   = self.create_client(SetLocation, '/set_location', callback_group=cb)
         self._svc_get_locs  = self.create_client(GetLocations, '/get_locations', callback_group=cb)
@@ -147,12 +155,54 @@ class UnifiedBridgeNode(Node):
             'yaw': round(yaw, 3),
         }
         asyncio.run_coroutine_threadsafe(self._broadcast(self._latest_stats), self._loop)
+        
+    def _on_stt(self, msg: SttResult):
+        asyncio.run_coroutine_threadsafe(
+            self._broadcast_voice({'type': 'stt', 'text': msg.text, 'confidence': msg.confidence}),
+            self._loop
+        )
+
+    def _on_tts_input(self, msg: String):
+        text = msg.data.strip()
+        if text == '[end]':
+            asyncio.run_coroutine_threadsafe(
+                self._broadcast_voice({'type': 'done'}),
+                self._loop
+            )
+        elif text and not text.startswith('['):
+            asyncio.run_coroutine_threadsafe(
+                self._broadcast_voice({'type': 'tts_chunk', 'text': text}),
+                self._loop
+            )
+
+    def _on_tts_audio(self, msg: Float32MultiArray):
+        if self._speaker_target == 'browser':
+            pcm = np.array(msg.data, dtype=np.float32)
+            wav_bytes = pcm_to_wav(pcm, sample_rate=24000)
+            asyncio.run_coroutine_threadsafe(
+                self._broadcast_voice_bytes(wav_bytes),
+                self._loop
+            )
 
     async def _broadcast(self, data: dict):
         with self._ws_lock:
             clients = list(self._ws_clients)
         for ws in clients:
             try: await ws.send_json(data)
+            except: pass
+            
+    async def _broadcast_voice(self, data: dict):
+        with self._ws_lock:
+            clients = list(self._voice_clients)
+        for ws in clients:
+            try: await ws.send_json(data)
+            except: pass
+
+    async def _broadcast_voice_bytes(self, data: bytes):
+        with self._ws_lock:
+            clients = list(self._voice_clients)
+        for ws in clients:
+            try: await ws.send_bytes(data)
             except: pass
 
     def call_srv(self, client, req):
@@ -166,23 +216,14 @@ class UnifiedBridgeNode(Node):
 app = FastAPI(title='Vector Nav Unified App')
 app.mount('/static', StaticFiles(directory=str(STATIC_DIR)), name='static')
 
-pipeline: VoicePipeline | None = None
 bridge: UnifiedBridgeNode | None = None
 
 @app.on_event('startup')
 async def startup():
-    global pipeline, bridge
-    logger.info('Loading unified app components...')
+    global bridge
+    logger.info('Loading web bridge components...')
     
-    # Init Voice
-    pipeline = VoicePipeline(
-        ws_url=WS_URL, stt_model=STT_MODEL,
-        tts_voice=TTS_VOICE, tts_speed=TTS_SPEED,
-        tts_engine_dir=os.environ.get('TTS_ENGINE_DIR', '/home/admin/models/kokoro_trt'),
-        use_trt=os.environ.get('USE_TRT', 'true').lower() not in ('0', 'false', 'no'),
-    )
     loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, pipeline.load)
     
     # Init ROS2 Bridge
     if not rclpy.ok(): rclpy.init()
@@ -191,7 +232,7 @@ async def startup():
     executor.add_node(bridge)
     threading.Thread(target=executor.spin, daemon=True).start()
     
-    logger.info('Unified app ready')
+    logger.info('Web bridge ready')
 
 @app.get('/')
 async def index():
@@ -241,23 +282,23 @@ async def navigate(body: NavigateRequest):
 @app.get('/api/audio')
 async def get_audio_config():
     return JSONResponse({
-        'volume': pipeline.speaker_volume if pipeline else 1.0,
-        'target': pipeline.speaker_target if pipeline else 'robot',
+        'volume': bridge._speaker_volume if bridge else 1.0,
+        'target': bridge._speaker_target if bridge else 'robot',
     })
 
 @app.post('/api/audio')
 async def set_audio_config(body: AudioConfigRequest):
-    if pipeline is None:
-        return JSONResponse({'success': False, 'message': 'pipeline not ready'})
+    if bridge is None:
+        return JSONResponse({'success': False, 'message': 'bridge not ready'})
     if body.volume is not None:
-        pipeline.speaker_volume = max(0.0, min(2.5, float(body.volume)))
+        bridge._speaker_volume = max(0.0, min(2.5, float(body.volume)))
     if body.target is not None:
         if body.target in ('robot', 'browser'):
-            pipeline.speaker_target = body.target
+            bridge._speaker_target = body.target
     return JSONResponse({
         'success': True,
-        'volume': pipeline.speaker_volume,
-        'target': pipeline.speaker_target,
+        'volume': bridge._speaker_volume,
+        'target': bridge._speaker_target,
     })
 
 @app.post('/api/navigate/cancel')
@@ -270,34 +311,25 @@ async def cancel_nav():
 @app.websocket('/ws/voice')
 async def voice_ws(websocket: WebSocket):
     await websocket.accept()
+    with bridge._ws_lock: bridge._voice_clients.add(websocket)
     try:
         while True:
             msg = await websocket.receive()
-            loop = asyncio.get_event_loop()
+            if msg['type'] == 'websocket.disconnect':
+                break
 
-            tts_cb = lambda s, b: asyncio.run_coroutine_threadsafe(
-                _send_tts_chunk(websocket, s, b), loop)
-            stt_cb = lambda t, c: asyncio.run_coroutine_threadsafe(
-                websocket.send_json({'type': 'stt', 'text': t, 'confidence': c}), loop)
-
-            if 'bytes' in msg and msg['bytes'] is not None:
-                data = msg['bytes']
-                pcm = await loop.run_in_executor(None, decode_webm_to_pcm, data)
-                await loop.run_in_executor(
-                    None,
-                    lambda: pipeline.process(pcm, on_tts_chunk=tts_cb, on_stt=stt_cb),
-                )
-            elif 'text' in msg and msg['text'] is not None:
+            if 'text' in msg and msg['text'] is not None:
                 payload = json.loads(msg['text'])
                 if payload.get('type') == 'text':
                     text = (payload.get('text') or '').strip()
                     if text:
-                        await loop.run_in_executor(
-                            None,
-                            lambda: pipeline.process_text(text, on_tts_chunk=tts_cb),
-                        )
-            await websocket.send_json({'type': 'done'})
+                        res = SttResult()
+                        res.text = text
+                        res.confidence = 1.0
+                        bridge._stt_pub.publish(res)
     except WebSocketDisconnect: pass
+    finally:
+        with bridge._ws_lock: bridge._voice_clients.discard(websocket)
 
 @app.websocket('/ws/control')
 async def control_ws(websocket: WebSocket):
@@ -321,11 +353,6 @@ async def control_ws(websocket: WebSocket):
     except WebSocketDisconnect: pass
     finally:
         with bridge._ws_lock: bridge._ws_clients.discard(websocket)
-
-async def _send_tts_chunk(websocket: WebSocket, text: str, wav_bytes: bytes | None):
-    await websocket.send_json({'type': 'tts_chunk', 'text': text})
-    if wav_bytes is not None:
-        await websocket.send_bytes(wav_bytes)
 
 # ── Utils & Entry ───────────────────────────────────────────────────────────
 

@@ -21,21 +21,18 @@ from websockets.exceptions import ConnectionClosed
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT_TEMPLATE = (
-    "You are VECTOR NAV, a friendly and intelligent warehouse robot assistant. "
-    "You help operators navigate the warehouse, answer questions about "
-    "robot operations, locations, procedures, and have natural conversations.\n\n"
+    "You are VECTOR NAV, an intelligent and highly capable warehouse robot assistant. "
+    "You have full conversational abilities and memory of previous chat turns.\n\n"
     "IMPORTANT RULES:\n"
-    "1. Keep responses SHORT — 1 to 3 sentences maximum. You are a robot speaking aloud, not writing an essay.\n"
-    "2. Answer conversational questions naturally. You can chat, introduce yourself, explain your capabilities, "
-    "and be helpful. Only decline if asked to do something completely outside your ability like writing code or essays.\n"
+    "1. Keep responses concise and natural. You are a robot speaking aloud to a human.\n"
+    "2. Answer questions intelligently and remember what the user has told you (like their name).\n"
     "3. When given context information, use it to answer accurately. If no context is relevant, use your own knowledge.\n"
-    "4. ONLY use a tool call when the user explicitly asks you to PERFORM AN ACTION (navigate, stop, dock).\n"
+    "4. ONLY use a tool call when the user explicitly commands you to PERFORM A PHYSICAL ACTION (navigate, stop, dock).\n"
     "5. When you need to call a tool, respond with ONLY this JSON and nothing else:\n"
     '   {{"tool_call": {{"name": "<tool_name>", "arguments": {{<args>}}}}}}\n\n'
-    "6. Do NOT use markdown formatting. No asterisks, no bullet points, no headers. Just plain spoken English.\n"
-    "7. Never repeat yourself. Say it once and stop.\n\n"
+    "6. Do NOT use markdown formatting. No asterisks, no bullet points, no headers. Just plain spoken English.\n\n"
     "{tools_section}"
-    "Be concise, friendly, and clear. If you don't know something, say so."
+    "Be friendly, pay attention to the conversation history, and assist the user effectively."
 )
 
 
@@ -81,7 +78,7 @@ class LLMEngine:
         ws_url: str = "wss://localhost:49000",
         tools: list | None = None,
         response_timeout: float = 30.0,
-        max_history_turns: int = 3,
+        max_history_turns: int = 15,
     ):
         self.ws_url = ws_url
         self.tools = tools or []
@@ -95,19 +92,33 @@ class LLMEngine:
 
     # ── Connection management ─────────────────────────────────────────────
 
-    def connect(self):
-        """Connect to NanoLLM WebSocket server."""
+    def connect(self, retries: int = 10, retry_delay: float = 10.0):
+        """Connect to NanoLLM WebSocket server with retry/backoff."""
         ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         ssl_ctx.check_hostname = False
         ssl_ctx.verify_mode = ssl.CERT_NONE
 
-        self._ws = ws_connect(
-            self.ws_url,
-            ssl_context=ssl_ctx,
-            max_size=None,
-            close_timeout=5,
-        )
-        logger.info(f"Connected to NanoLLM at {self.ws_url}")
+        for attempt in range(1, retries + 1):
+            try:
+                self._ws = ws_connect(
+                    self.ws_url,
+                    ssl_context=ssl_ctx,
+                    max_size=None,
+                    close_timeout=5,
+                )
+                logger.info(f"Connected to NanoLLM at {self.ws_url}")
+                break
+            except (ConnectionRefusedError, OSError) as e:
+                if attempt >= retries:
+                    raise RuntimeError(
+                        f"Could not connect to NanoLLM at {self.ws_url} "
+                        f"after {retries} attempts: {e}"
+                    ) from e
+                logger.warning(
+                    f"NanoLLM not ready (attempt {attempt}/{retries}), "
+                    f"retrying in {retry_delay:.0f}s…"
+                )
+                time.sleep(retry_delay)
 
         # Wait for the initial client_state connected message
         self._recv_until_ready(timeout=10.0)
@@ -148,8 +159,15 @@ class LLMEngine:
         prompt = _build_prompt(user_text, context)
 
         with self._lock:
-            self._send_text(prompt)
-            response = self._collect_response_streaming(on_sentence=None)
+            try:
+                self._send_text(prompt)
+                response = self._collect_response_streaming(on_sentence=None)
+            except Exception as e:
+                logger.warning(f"WebSocket error during chat(), reconnecting: {e}")
+                self._ws = None
+                self.connect()
+                self._send_text(prompt)
+                response = self._collect_response_streaming(on_sentence=None)
 
         return _parse_response(response)
 
@@ -168,8 +186,15 @@ class LLMEngine:
         prompt = _build_prompt(user_text, context)
 
         with self._lock:
-            self._send_text(prompt)
-            response = self._collect_response_streaming(on_sentence=on_chunk)
+            try:
+                self._send_text(prompt)
+                response = self._collect_response_streaming(on_sentence=on_chunk)
+            except Exception as e:
+                logger.warning(f"WebSocket error during chat_stream(), reconnecting: {e}")
+                self._ws = None
+                self.connect()
+                self._send_text(prompt)
+                response = self._collect_response_streaming(on_sentence=on_chunk)
 
             # Keep short conversation memory, reset when it gets too long
             self._turn_count += 1
@@ -290,6 +315,7 @@ class LLMEngine:
                         if entry.get('role') == 'bot':
                             text = entry.get('text', '')
                             if text and text != last_raw:
+                                logger.info(f"DEBUG RAW TEXT: {repr(text)}")
                                 last_raw = text
                                 stable_count = 0
 
@@ -385,29 +411,35 @@ def _looks_like_tool_call(text: str) -> bool:
 def _parse_response(response: str) -> dict:
     """
     Parse the LLM response text. If it contains a JSON tool_call block,
-    extract it. Otherwise return as plain text.
+    extract it. Otherwise return as plain text. Robust against missing trailing braces.
     """
     try:
         start = response.find('{"tool_call"')
         if start >= 0:
-            depth = 0
-            for i in range(start, len(response)):
-                if response[i] == '{':
-                    depth += 1
-                elif response[i] == '}':
-                    depth -= 1
-                    if depth == 0:
-                        json_str = response[start:i+1]
-                        data = json.loads(json_str)
-                        if 'tool_call' in data:
-                            tc = data['tool_call']
-                            return {
-                                'type': 'tool_call',
-                                'name': tc.get('name', ''),
-                                'arguments': tc.get('arguments', {}),
-                            }
-                        break
-    except (json.JSONDecodeError, KeyError):
+            # Try to parse the json string, auto-closing braces if needed
+            json_str = response[start:]
+            # Remove any trailing junk after the last brace
+            last_brace = json_str.rfind('}')
+            if last_brace >= 0:
+                json_str = json_str[:last_brace+1]
+            
+            # Try parsing, adding up to 3 missing closing braces if it fails
+            parsed_data = None
+            for _ in range(4):
+                try:
+                    parsed_data = json.loads(json_str)
+                    break
+                except json.JSONDecodeError:
+                    json_str += '}'
+            
+            if parsed_data and 'tool_call' in parsed_data:
+                tc = parsed_data['tool_call']
+                return {
+                    'type': 'tool_call',
+                    'name': tc.get('name', ''),
+                    'arguments': tc.get('arguments', {}),
+                }
+    except Exception:
         pass
 
     return {

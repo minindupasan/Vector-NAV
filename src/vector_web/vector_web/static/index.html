@@ -6,19 +6,44 @@
     <title>Vector Nav</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/colors_and_type.css">
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <!-- DRIVE MODE OVERLAY -->
+
+    <!-- ── Lucide icon sprite ───────────────────────────────────────── -->
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+      <defs>
+        <symbol id="i-bot" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></symbol>
+        <symbol id="i-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></symbol>
+        <symbol id="i-octagon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.586 16.726A2 2 0 0 1 2 15.312V8.688a2 2 0 0 1 .586-1.414l4.688-4.688A2 2 0 0 1 8.688 2h6.624a2 2 0 0 1 1.414.586l4.688 4.688A2 2 0 0 1 22 8.688v6.624a2 2 0 0 1-.586 1.414l-4.688 4.688a2 2 0 0 1-1.414.586H8.688a2 2 0 0 1-1.414-.586z"/></symbol>
+        <symbol id="i-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
+        <symbol id="i-square" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="5" y="5" rx="1"/></symbol>
+        <symbol id="i-pause" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></symbol>
+        <symbol id="i-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></symbol>
+        <symbol id="i-compass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></symbol>
+        <symbol id="i-gauge" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></symbol>
+        <symbol id="i-cpu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></symbol>
+        <symbol id="i-thermo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/></symbol>
+        <symbol id="i-zap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></symbol>
+        <symbol id="i-radio" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.1 19.1 19"/></symbol>
+        <symbol id="i-wifi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h.01"/><path d="M2 8.82a15 15 0 0 1 20 0"/><path d="M5 12.859a10 10 0 0 1 14 0"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/></symbol>
+        <symbol id="i-target" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></symbol>
+        <symbol id="i-pencil" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></symbol>
+        <symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+        <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+        <symbol id="i-activity" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.5.5 0 0 1-.96 0L9.24 2.18a.5.5 0 0 0-.96 0l-2.35 8.36A2 2 0 0 1 4 12H2"/></symbol>
+        <symbol id="i-route" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></symbol>
+        <symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></symbol>
+      </defs>
+    </svg>
+
+    <!-- ── DRIVE MODE OVERLAY ───────────────────────────────────────── -->
     <div id="drive-overlay" class="drive-overlay">
-        <button id="close-drive" class="close-drive-btn">&times;</button>
-        
+        <button id="close-drive" class="close-drive-btn"><svg class="ico"><use href="#i-square"/></svg></button>
+
         <div id="orientation-notice" class="orientation-notice">
-            <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="5" y="2" width="14" height="20" rx="2" transform="rotate(90 12 12)"></rect>
-                <path d="M12 15l-3-3 3-3M12 12h5"></path>
-            </svg>
             <p>Please rotate your device to landscape</p>
         </div>
 
@@ -56,104 +81,309 @@
         </div>
     </div>
 
-    <!-- MAIN APP SHELL -->
+    <!-- ── MAIN APP SHELL ───────────────────────────────────────────── -->
     <div class="app-shell">
-        <header class="header">
+
+        <!-- Top bar -->
+        <header class="topbar">
             <div class="brand">
-                <h1>Vector<span class="accent-text">Nav</span></h1>
-            </div>
-            <div class="header-right">
-                <div class="battery-indicator" id="header-battery">
-                    <div class="battery-level" id="header-battery-fill"></div>
-                    <span id="header-battery-text">--%</span>
+                <object data="/static/logo.svg" type="image/svg+xml" class="brand-mark" aria-label="Vector Nav"></object>
+                <div class="brand-text">
+                    <div class="brand-name">VECTOR<span class="brand-dot">·</span>NAV</div>
+                    <div class="brand-sub">Autonomous Voice Console <span class="brand-build">v1.4.2 · build 0x1A2B</span></div>
                 </div>
-                <button id="enter-drive-btn" class="drive-mode-trigger">
-                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5">
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <path d="M12 2v20M2 12h20"></path>
+            </div>
+
+            <!-- System status pills -->
+            <div class="sys-pills">
+                <div class="sys-pill"><svg class="ico"><use href="#i-radio"/></svg><span>ROS2 <em>humble</em></span><span class="sys-dot ok"></span></div>
+                <div class="sys-pill"><svg class="ico"><use href="#i-wifi"/></svg><span>UPLINK <em>52ms</em></span><span class="sys-dot ok"></span></div>
+                <div class="sys-pill"><svg class="ico"><use href="#i-cpu"/></svg><span>JETSON <em>38%</em></span><span class="sys-dot ok"></span></div>
+                <div class="sys-pill"><svg class="ico"><use href="#i-layers"/></svg><span>LIDAR <em>10Hz</em></span><span class="sys-dot ok"></span></div>
+            </div>
+
+            <!-- Safety controls -->
+            <div class="safety-cluster">
+                <button id="estop-btn" class="btn btn-estop" title="Emergency stop · cuts motor power">
+                    <svg class="ico"><use href="#i-octagon"/></svg>
+                    <span>E&#8209;STOP</span>
+                </button>
+                <button id="resume-btn" class="btn btn-resume" title="Resume mission" disabled>
+                    <svg class="ico"><use href="#i-play"/></svg>
+                    <span>RESUME</span>
+                </button>
+                <button id="stop-btn-top" class="btn btn-stop" title="Stop current motion">
+                    <svg class="ico"><use href="#i-pause"/></svg>
+                    <span>STOP</span>
+                </button>
+            </div>
+
+            <!-- Battery + drive entry -->
+            <div class="topbar-right">
+                <div class="battery-cell" id="battery-cell" data-pct="87">
+                    <svg viewBox="0 0 56 28" class="batt-svg" preserveAspectRatio="none">
+                        <rect class="batt-shell" x="0.5" y="0.5" width="51" height="27" rx="4" fill="none"/>
+                        <rect class="batt-tip"   x="52"  y="9"   width="4"  height="10" rx="1"/>
+                        <clipPath id="batt-clip"><rect x="3" y="3" width="46" height="22" rx="2"/></clipPath>
+                        <clipPath id="batt-fill-clip"><rect id="batt-fill-clip-rect" x="3" y="3" width="46" height="22"/></clipPath>
+                        <g clip-path="url(#batt-clip)">
+                          <rect class="batt-fill" x="3" y="3" width="46" height="22"/>
+                          <g clip-path="url(#batt-fill-clip)">
+                            <g class="batt-wave batt-wave-back"><path d="M-18 5 Q -9 8.2 0 5 T 18 5 T 36 5 T 54 5 T 72 5 T 90 5 T 108 5 V25 H-18 Z"/></g>
+                            <g class="batt-wave batt-wave-front"><path d="M-18 6 Q -9 2.8 0 6 T 18 6 T 36 6 T 54 6 T 72 6 T 90 6 T 108 6 V25 H-18 Z"/></g>
+                          </g>
+                        </g>
                     </svg>
-                    DRIVE
+                    <div class="batt-readout">
+                        <span class="batt-pct" id="batt-pct">87</span><span class="batt-unit">%</span>
+                        <span class="batt-eta" id="batt-eta">2h 14m</span>
+                    </div>
+                </div>
+                <button id="enter-drive-btn" class="btn btn-primary">
+                    <svg class="ico"><use href="#i-target"/></svg>
+                    <span>DRIVE</span>
                 </button>
             </div>
         </header>
 
-        <div class="main-layout">
-            <!-- LEFT HALF: CHAT -->
-            <section class="layout-column chat-side">
-                <div class="section-header">
-                    <span class="section-tag">Voice Chat</span>
-                </div>
-                <main class="chat-container" id="chat"></main>
-                <div class="spectrum-wrap">
-                    <canvas id="spectrum" class="spectrum"></canvas>
+        <!-- Main 3-column workspace -->
+        <div class="workspace">
+
+            <!-- ── COL 1: Voice + chat ───────────────────────────────── -->
+            <section class="col col-chat">
+                <div class="card card-flex">
+                    <div class="card-head">
+                        <div class="card-title">
+                            <svg class="ico"><use href="#i-bot"/></svg>
+                            <span>Voice Channel</span>
+                        </div>
+                        <div class="card-meta">
+                            <span class="badge badge-soft" id="vox-badge">IDLE</span>
+                            <button class="icon-btn" id="audio-cfg-btn" title="Audio output settings" aria-haspopup="dialog">
+                                <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/></svg>
+                            </button>
+                        </div>
+
+                        <!-- Audio config popover -->
+                        <div id="audio-cfg-pop" class="audio-pop" hidden>
+                            <div class="audio-pop-row">
+                                <label class="text-muted">Output</label>
+                                <div class="seg">
+                                    <button class="seg-btn target-btn active" data-target="robot">Robot</button>
+                                    <button class="seg-btn target-btn" data-target="browser">Browser</button>
+                                </div>
+                            </div>
+                            <div class="audio-pop-row">
+                                <label class="text-muted" for="volume-slider">Volume <span id="vol-val" class="text-mono">100%</span></label>
+                                <input type="range" id="volume-slider" min="0" max="250" step="5" value="100">
+                            </div>
+                        </div>
+                    </div>
+
+                    <main class="chat-container" id="chat">
+                        <div class="chat-empty" id="chat-empty">
+                            <svg class="ico"><use href="#i-bot"/></svg>
+                            <span>Press &amp; hold the mic to talk to Vector</span>
+                        </div>
+                    </main>
+
+                    <!-- Spectrum stage -->
+                    <div class="spectrum-stage" id="spectrum-stage">
+                        <canvas id="spectrum-bars" class="spectrum-bars"></canvas>
+                        <div class="spectrum-rings" aria-hidden="true">
+                            <span></span><span></span><span></span>
+                        </div>
+                        <div class="spectrum-readout">
+                            <span class="text-mono spectrum-time" id="spec-time">00:00</span>
+                            <span class="text-mono spectrum-level" id="spec-level">−∞ dB</span>
+                        </div>
+                    </div>
                 </div>
             </section>
 
-            <!-- RIGHT HALF: TELEMETRY & WAYPOINTS -->
-            <section class="layout-column info-side">
-                <!-- TELEMETRY -->
-                <div class="panel telemetry-panel">
-                    <h3 class="panel-title">Live Telemetry</h3>
-                    <div class="stats-grid">
-                        <div class="stat-item">
-                            <span class="stat-label">Status</span>
-                            <span class="stat-value" id="stat-nav">Unknown</span>
+            <!-- ── COL 2: Map + Mission log ──────────────────────────── -->
+            <section class="col col-mid">
+
+                <div class="card card-map">
+                    <div class="card-head">
+                        <div class="tabs" role="tablist">
+                            <button class="tab active" role="tab" data-tab="scan">
+                                <svg class="ico"><use href="#i-radio"/></svg><span>Live Scan</span>
+                            </button>
+                            <button class="tab" role="tab" data-tab="map">
+                                <svg class="ico"><use href="#i-route"/></svg><span>Live Map</span>
+                            </button>
                         </div>
-                        <div class="stat-item">
-                            <span class="stat-label">Velocity</span>
-                            <span class="stat-value" id="stat-vel">0.0 m/s</span>
+                        <div class="card-meta">
+                            <span class="badge badge-soft tab-meta" data-tab="scan">RPLIDAR A1M8 · 5.5Hz</span>
+                            <span class="badge badge-soft tab-meta" data-tab="map" hidden>SLAM · LOCKED</span>
+                            <span class="text-muted text-mono tab-meta" data-tab="scan"><span id="scan-pts">0</span> pts · 12m</span>
+                            <span class="text-muted text-mono tab-meta" data-tab="map" hidden>Lab Floor 2</span>
                         </div>
-                        <div class="stat-item full-width">
-                            <span class="stat-label">Current Pose</span>
-                            <span class="stat-value pose-value" id="stat-pose">X: 0.00 Y: 0.00 θ: 0.0°</span>
+                    </div>
+
+                    <!-- TAB 1: LIDAR LIVE SCAN -->
+                    <div class="tab-pane scan-stage active" data-pane="scan">
+                        <canvas id="lidar-canvas" class="lidar-canvas"></canvas>
+                        <div class="scan-legend">
+                            <span><i class="dot near"></i>&lt; 1m</span>
+                            <span><i class="dot mid"></i>1–4m</span>
+                            <span><i class="dot far"></i>&gt; 4m</span>
+                        </div>
+                        <div class="scan-overlay">
+                            <div class="map-stat"><span class="text-muted">RANGE</span><span class="text-mono"><span id="scan-min">0.18</span>m / <span id="scan-max">11.42</span>m</span></div>
+                            <div class="map-stat"><span class="text-muted">RPM</span><span class="text-mono">330</span></div>
+                            <div class="map-stat"><span class="text-muted">QUAL</span><span class="text-mono">98%</span></div>
+                            <div class="map-stat"><span class="text-muted">OBSTACLES</span><span class="text-mono"><span id="scan-obs">3</span></span></div>
+                        </div>
+                    </div>
+
+                    <!-- TAB 2: LIVE MAP -->
+                    <div class="tab-pane map-stage" data-pane="map">
+                        <svg viewBox="0 0 600 380" class="map-svg" preserveAspectRatio="xMidYMid meet">
+                            <defs>
+                                <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
+                                    <path d="M 24 0 L 0 0 0 24" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>
+                                </pattern>
+                                <radialGradient id="bot-glow" cx="50%" cy="50%" r="50%">
+                                    <stop offset="0%" stop-color="#fab7b7" stop-opacity="0.6"/>
+                                    <stop offset="100%" stop-color="#fab7b7" stop-opacity="0"/>
+                                </radialGradient>
+                            </defs>
+                            <rect width="600" height="380" fill="url(#grid)"/>
+                            <!-- room outlines -->
+                            <path d="M 40 60 L 280 60 L 280 180 L 380 180 L 380 60 L 560 60 L 560 320 L 40 320 Z" fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="1.5"/>
+                            <path d="M 200 60 L 200 180 M 280 180 L 280 320 M 380 220 L 560 220 M 380 260 L 460 260 L 460 320" fill="none" stroke="rgba(255,255,255,0.10)" stroke-width="1"/>
+                            <!-- planned route -->
+                            <path id="route-path" d="M 120 280 Q 200 240 260 200 T 420 140" fill="none" stroke="#fab7b7" stroke-width="2" stroke-dasharray="4 6" opacity="0.85"/>
+                            <!-- waypoints -->
+                            <g class="waypoint">
+                                <circle cx="120" cy="280" r="6" fill="#ffffff"/>
+                                <text x="132" y="283" class="map-label">Dock</text>
+                            </g>
+                            <g class="waypoint">
+                                <circle cx="420" cy="140" r="6" fill="none" stroke="#ffffff" stroke-width="1.5"/>
+                                <text x="432" y="143" class="map-label">Kitchen</text>
+                            </g>
+                            <g class="waypoint">
+                                <circle cx="490" cy="280" r="4" fill="rgba(255,255,255,0.4)"/>
+                                <text x="500" y="283" class="map-label dim">Lab Bench</text>
+                            </g>
+                            <g class="waypoint">
+                                <circle cx="180" cy="120" r="4" fill="rgba(255,255,255,0.4)"/>
+                                <text x="190" y="123" class="map-label dim">Reception</text>
+                            </g>
+                            <!-- bot -->
+                            <g id="bot-marker" transform="translate(260,200)">
+                                <circle r="34" fill="url(#bot-glow)"/>
+                                <circle r="10" fill="#fab7b7"/>
+                                <circle r="10" fill="none" stroke="#ffffff" stroke-width="1.5"/>
+                                <line x1="0" y1="0" x2="14" y2="-6" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+                            </g>
+                            <!-- lidar fan -->
+                            <path d="M 260 200 L 360 156 A 110 110 0 0 0 360 244 Z" fill="rgba(250,183,183,0.08)" stroke="rgba(250,183,183,0.25)" stroke-width="1"/>
+                        </svg>
+                        <div class="map-overlay">
+                            <div class="map-stat"><span class="text-muted">HEADING</span><span class="text-mono">042.3°</span></div>
+                            <div class="map-stat"><span class="text-muted">VEL</span><span class="text-mono">1.20 m/s</span></div>
+                            <div class="map-stat"><span class="text-muted">DIST</span><span class="text-mono">4.2 m</span></div>
+                            <div class="map-stat"><span class="text-muted">ETA</span><span class="text-mono">00:12</span></div>
                         </div>
                     </div>
                 </div>
 
-                <!-- AUDIO -->
-                <div class="panel audio-panel">
-                    <h3 class="panel-title">Speaker</h3>
-                    <div class="audio-target-row">
-                        <button class="target-btn active" data-target="robot">Robot</button>
-                        <button class="target-btn" data-target="browser">This Device</button>
+                <div class="card card-log">
+                    <div class="card-head">
+                        <div class="card-title">
+                            <svg class="ico"><use href="#i-activity"/></svg>
+                            <span>Mission Log</span>
+                        </div>
+                        <span class="text-muted text-mono">tail · live</span>
                     </div>
-                    <div class="setting-group">
-                        <label>VOLUME <span id="vol-val">100%</span></label>
-                        <input type="range" id="volume-slider" min="0" max="250" step="5" value="100">
+                    <ul class="log-list" id="log-list"></ul>
+                </div>
+            </section>
+
+            <!-- ── COL 3: Telemetry, waypoints, system ──────────────── -->
+            <section class="col col-info">
+
+                <div class="card">
+                    <div class="card-head">
+                        <div class="card-title"><svg class="ico"><use href="#i-gauge"/></svg><span>Live Telemetry</span></div>
+                    </div>
+                    <div class="tele-grid">
+                        <div class="tele">
+                            <div class="tele-label"><svg class="ico"><use href="#i-zap"/></svg>Velocity</div>
+                            <div class="tele-num"><span id="stat-vel">0.00</span><em>m/s</em></div>
+                            <div class="tele-bar"><div class="tele-bar-fill" id="vel-bar" style="width: 0%;"></div></div>
+                        </div>
+                        <div class="tele">
+                            <div class="tele-label"><svg class="ico"><use href="#i-compass"/></svg>Heading</div>
+                            <div class="tele-num"><span id="stat-heading">000.0</span><em>°</em></div>
+                            <div class="tele-compass">
+                                <div class="tele-compass-needle" id="heading-needle" style="transform: rotate(0deg)"></div>
+                            </div>
+                        </div>
+                        <div class="tele">
+                            <div class="tele-label"><svg class="ico"><use href="#i-activity"/></svg>Angular</div>
+                            <div class="tele-num"><span id="stat-ang">0.00</span><em>rad/s</em></div>
+                            <div class="tele-bar"><div class="tele-bar-fill" id="ang-bar" style="width: 0%;"></div></div>
+                        </div>
+                        <div class="tele tele-wide">
+                            <div class="tele-label">
+                                <span><svg class="ico"><use href="#i-pin"/></svg>Pose</span>
+                                <span class="badge badge-soft" id="stat-nav">Idle</span>
+                            </div>
+                            <div class="pose-readout text-mono" id="stat-pose">
+                                <span><b>X</b><span id="pose-x">0.000</span></span>
+                                <span><b>Y</b><span id="pose-y">0.000</span></span>
+                                <span><b>θ</b><span id="pose-th">0.0°</span></span>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <!-- WAYPOINTS -->
-                <div class="panel waypoints-panel">
-                    <h3 class="panel-title">Waypoints</h3>
+                <div class="card">
+                    <div class="card-head">
+                        <div class="card-title"><svg class="ico"><use href="#i-pin"/></svg><span>Waypoints</span></div>
+                        <span class="text-muted text-mono"><span id="wp-count">3</span> saved</span>
+                    </div>
                     <div class="save-row">
-                        <input type="text" id="loc-input" placeholder="New location name..." autocomplete="off">
-                        <button id="save-loc-btn" class="action-btn">Save</button>
+                        <input type="text" id="loc-input" placeholder="Save current pose as…" autocomplete="off">
+                        <button id="save-loc-btn" class="btn btn-secondary">
+                            <svg class="ico"><use href="#i-plus"/></svg><span>SAVE</span>
+                        </button>
                     </div>
-                    <div id="locations-list" class="locations-list">
-                        <div class="empty-msg">No waypoints saved</div>
-                    </div>
-                    <button id="stop-nav-btn" class="stop-btn">Halt Robot</button>
+                    <div id="locations-list" class="locations-list"></div>
+                    <button id="stop-nav-btn" class="btn btn-danger btn-block">
+                        <svg class="ico"><use href="#i-octagon"/></svg><span>HALT NAVIGATION</span>
+                    </button>
                 </div>
             </section>
+
         </div>
 
-        <footer class="controls">
-            <div class="status-wrap">
+        <!-- Bottom mic dock -->
+        <footer class="dock">
+            <div class="dock-status">
                 <span class="status-dot" id="statusDot"></span>
-                <span id="statusText">Offline</span>
+                <span class="status-text" id="statusText">Offline</span>
+                <span class="dock-divider"></span>
+                <span class="text-muted text-mono">RTT <em id="dock-rtt">52</em>ms</span>
             </div>
-            
-            <button class="mic-btn" id="micBtn" disabled>
-                <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="9" y="2" width="6" height="12" rx="3"></rect>
-                    <path d="M5 10a7 7 0 0 0 14 0"></path>
-                    <line x1="12" y1="17" x2="12" y2="22"></line>
-                    <line x1="8" y1="22" x2="16" y2="22"></line>
-                </svg>
-            </button>
 
-            <div class="state-wrap">
+            <div class="mic-wrap">
+                <span class="mic-ring r1"></span>
+                <span class="mic-ring r2"></span>
+                <span class="mic-ring r3"></span>
+                <button class="mic-btn" id="micBtn" disabled>
+                    <svg class="ico-lg"><use href="#i-mic"/></svg>
+                </button>
+                <div class="mic-hint text-mono">PRESS &amp; HOLD <kbd>Space</kbd></div>
+            </div>
+
+            <div class="dock-state">
+                <span class="text-muted text-mono">STATE</span>
                 <span class="state-label" id="stateLabel">Standby</span>
             </div>
         </footer>
@@ -164,5 +394,6 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
     <script src="/static/app.js"></script>
+    <script src="/static/effects.js"></script>
 </body>
 </html>

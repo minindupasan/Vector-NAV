@@ -35,9 +35,10 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
-from std_msgs.msg import String, Bool
+from std_msgs.msg import String, Bool, Float32MultiArray
 
 import sounddevice as sd
+from vector_tts.kokoro_trt import KokoroTRT
 
 import os
 os.environ.setdefault('SDL_AUDIODRIVER', 'pulseaudio')
@@ -67,37 +68,21 @@ class TTSNode(Node):
         self.declare_parameter('device', '')
         self.declare_parameter('volume', 1.0)
         self.declare_parameter('engine_dir', '/home/admin/models/kokoro_trt')
-        self.declare_parameter('use_trt', True)
 
         self._voice_name = self.get_parameter('voice').get_parameter_value().string_value
         self._speed = self.get_parameter('speed').get_parameter_value().double_value
         self._device = self.get_parameter('device').get_parameter_value().string_value or None
         self._volume = self.get_parameter('volume').get_parameter_value().double_value
-        self._use_trt = self.get_parameter('use_trt').get_parameter_value().bool_value
         engine_dir = self.get_parameter('engine_dir').get_parameter_value().string_value
 
-        # ── Load Kokoro model ───────────────────────────────────────────────
-        if self._use_trt:
-            self.get_logger().info(f'Loading Kokoro TRT engines from {engine_dir}...')
-            from vector_tts.kokoro_trt import KokoroTRT
-            self._tts = KokoroTRT(engine_dir)
-            self._sample_rate = self._tts.sample_rate
-            self._tts.load_voice(self._voice_name)
-            self._pipeline = None
-            self.get_logger().info(
-                f'Kokoro TRT ready  voice={self._voice_name}  '
-                f'speed={self._speed}  device={self._device or "default"}'
-            )
-        else:
-            self.get_logger().info('Loading Kokoro TTS model (PyTorch CPU)...')
-            from kokoro import KPipeline
-            self._pipeline = KPipeline(lang_code='a', device='cpu')
-            self._tts = None
-            self._sample_rate = 24000
-            self.get_logger().info(
-                f'Kokoro TTS ready  voice={self._voice_name}  '
-                f'speed={self._speed}  device={self._device or "default"}'
-            )
+        # ── Load Kokoro TRT ───────────────────────────────────────────────
+        self.get_logger().info(f'Loading Kokoro TRT from {engine_dir}...')
+        self._tts = KokoroTRT(engine_dir)
+        self._sample_rate = self._tts.sample_rate
+        self.get_logger().info(
+            f'Kokoro TRT ready  voice={self._voice_name}  '
+            f'speed={self._speed}  device={self._device or "default"}'
+        )
 
         # ── Pre-cache common responses ────────────────────────────────────
         self.get_logger().info('Pre-caching common responses...')
@@ -127,6 +112,7 @@ class TTSNode(Node):
 
         # ── Publishers ──────────────────────────────────────────────────────
         self._speaking_pub = self.create_publisher(Bool, '/tts/speaking', 10)
+        self._audio_pub    = self.create_publisher(Float32MultiArray, '/tts/audio/stream', 10)
 
         # ── Subscribers ─────────────────────────────────────────────────────
         self.create_subscription(
@@ -136,7 +122,7 @@ class TTSNode(Node):
         self.get_logger().info(
             'TTSNode started\n'
             '  Subscribes : /tts/input\n'
-            '  Publishes  : /tts/speaking'
+            '  Publishes  : /tts/speaking, /tts/audio/stream'
         )
 
     # ── ROS callback ─────────────────────────────────────────────────────
@@ -188,34 +174,21 @@ class TTSNode(Node):
 
             t0 = time.monotonic()
 
-            if self._use_trt:
-                chunks = self._tts.phonemize(item)
-                audio_parts = []
-                for _, ps in chunks:
-                    if self._interrupt.is_set():
-                        break
-                    audio = self._tts.synthesize_phonemes(
-                        ps, voice=self._voice_name, speed=self._speed
-                    )
-                    if audio is not None:
-                        audio_parts.append(audio)
-            else:
-                audio_parts = []
-                for _, _, audio in self._pipeline(
-                    item, voice=self._voice_name, speed=self._speed
-                ):
-                    if self._interrupt.is_set():
-                        break
-                    audio_parts.append(audio)
+            audio_f = self._tts.synthesize(item, voice=self._voice_name, speed=self._speed)
 
-            if audio_parts and not self._interrupt.is_set():
-                audio_f = np.concatenate(audio_parts).astype(np.float32)
+            if len(audio_f) > 0 and not self._interrupt.is_set():
                 if self._volume != 1.0:
                     audio_f *= self._volume
                     np.clip(audio_f, -1.0, 1.0, out=audio_f)
                 audio_f = _trim_silence(audio_f, self._sample_rate)
                 elapsed = (time.monotonic() - t0) * 1000
                 self.get_logger().info(f'[TTS] Synthesized in {elapsed:.0f}ms')
+                
+                # Publish to ROS
+                msg = Float32MultiArray()
+                msg.data = audio_f.tolist()
+                self._audio_pub.publish(msg)
+                
                 self._audio_queue.put(audio_f)
 
     # ── Playback thread ──────────────────────────────────────────────────
@@ -271,17 +244,7 @@ class TTSNode(Node):
 
     def _synthesize_to_array(self, text: str) -> np.ndarray:
         """Synthesize text and return as float32 audio array."""
-        if self._use_trt:
-            audio_f = self._tts.synthesize(
-                text, voice=self._voice_name, speed=self._speed
-            )
-        else:
-            chunks = []
-            for _, _, audio in self._pipeline(
-                text, voice=self._voice_name, speed=self._speed
-            ):
-                chunks.append(audio)
-            audio_f = np.concatenate(chunks).astype(np.float32)
+        audio_f = self._tts.synthesize(text, voice=self._voice_name, speed=self._speed)
         if self._volume != 1.0:
             audio_f = audio_f * self._volume
             np.clip(audio_f, -1.0, 1.0, out=audio_f)

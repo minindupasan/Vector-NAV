@@ -15,7 +15,7 @@ fi
 # ----------------------------------
 
 echo "----------------------------------------------------"
-echo "  VECTOR NAV — Llama-3.2-3B"
+echo "  VECTOR NAV — Llama-3.2-1B"
 echo "----------------------------------------------------"
 
 if [ -z "$HUGGINGFACE_TOKEN" ]; then
@@ -34,30 +34,23 @@ sudo docker rm -f nano_llm_server 2>/dev/null || true
 
 # 3. Launch NanoLLM (Llama-3.2-3B)
 echo "[3/4] Starting NanoLLM Server..."
-/home/admin/jetson-containers/jetson-containers run \
+exec script -e -q -c "/home/admin/jetson-containers/jetson-containers run \
   --name nano_llm_server \
-  --detach \
   --dns 8.8.8.8 \
   --env HUGGINGFACE_TOKEN=$HUGGINGFACE_TOKEN \
-  -v "$SCRIPT_DIR/fix_tied_embeddings.py:/tmp/fix_tied_embeddings.py:ro" \
+  -v \"$SCRIPT_DIR/fix_tied_embeddings.py:/tmp/fix_tied_embeddings.py:ro\" \
   dustynv/nano_llm:r36.4.0 \
-  bash -c "huggingface-cli download meta-llama/Llama-3.2-3B-Instruct \
+  bash -c \"huggingface-cli download meta-llama/Llama-3.2-3B-Instruct \
       --local-dir-use-symlinks False && \
     python3 /tmp/fix_tied_embeddings.py meta-llama/Llama-3.2-3B-Instruct && \
     python3 -m nano_llm.agents.web_chat \
       --model meta-llama/Llama-3.2-3B-Instruct \
       --api mlc \
       --quantization q4f16_1 \
-      --max-context-len 2048 \
+      --max-context-len 1024 \
       --max-new-tokens 150 \
       --temperature 0.6 \
       --top-p 0.9 \
       --repetition-penalty 1.1 \
-      --system-prompt 'You are VECTOR NAV, a warehouse robot assistant. Always reply in 1 to 2 short plain-English sentences. Never use markdown, never use lists, never repeat yourself. Stop after one reply.'"
-
-# 4. Success message and logs
-echo "[4/4] Server is starting in the background."
-echo "      Wait for: 'Uvicorn running on http://0.0.0.0:8050'"
-echo "----------------------------------------------------"
-echo "Following logs now (Press Ctrl+C to return to terminal):"
-sudo docker logs -f nano_llm_server
+      --chat-template llama-3 \
+      --system-prompt 'You are VECTOR NAV, an intelligent warehouse robot assistant. You have full conversational abilities and should answer questions directly and naturally. Be concise but helpful. You have access to physical navigation tools, but ONLY call a tool if the user explicitly commands you to move, dock, or stop. If they are just chatting, answering a question, or asking about you, just reply conversationally without tools.'\"" /dev/null

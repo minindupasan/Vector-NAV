@@ -10,12 +10,15 @@ Usage:
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, LogInfo
+from launch.actions import DeclareLaunchArgument, LogInfo, TimerAction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-
+import os
 
 def generate_launch_description():
+    # Kill any zombie/orphan nodes from previous runs before starting new ones
+    os.system('pkill -f "rag_node|llm_node|tts_node|stt_node" 2>/dev/null || true')
+
     return LaunchDescription([
 
         # ── Arguments ─────────────────────────────────────────────────────────
@@ -30,17 +33,6 @@ def generate_launch_description():
 
         LogInfo(msg='Starting VECTOR NAV — STT + RAG + LLM + TTS nodes'),
 
-        # ── STT node — faster-whisper (CPU, tiny.en int8) ────────────────────
-        Node(
-            package='vector_stt',
-            executable='stt_node',
-            name='stt_node',
-            output='screen',
-            parameters=[{
-                'model_size': LaunchConfiguration('stt_model'),
-            }],
-        ),
-
         # ── RAG node — owns the embedding model ───────────────────────────────
         Node(
             package='vector_rag',
@@ -54,32 +46,36 @@ def generate_launch_description():
         ),
 
         # ── LLM node — delegates RAG to rag_node via topics ──────────────────
-        Node(
-            package='vector_llm',
-            executable='llm_node',
-            name='llm_node',
-            output='screen',
-            parameters=[{
-                'ws_url':     LaunchConfiguration('ws_url'),
-                'use_rag':    False,   # rag_node handles retrieval
-                'rag_top_k':  LaunchConfiguration('rag_top_k'),
-                'tools_file': LaunchConfiguration('tools_file'),
-            }],
-        ),
+        TimerAction(period=2.0, actions=[
+            Node(
+                package='vector_llm',
+                executable='llm_node',
+                name='llm_node',
+                output='screen',
+                parameters=[{
+                    'ws_url':     LaunchConfiguration('ws_url'),
+                    'use_rag':    False,
+                    'rag_top_k':  LaunchConfiguration('rag_top_k'),
+                    'tools_file': LaunchConfiguration('tools_file'),
+                }],
+            ),
+        ]),
 
-        # ── TTS node — Kokoro TTS (TensorRT GPU) ────────────────────────────
-        Node(
-            package='vector_tts',
-            executable='tts_node',
-            name='tts_node',
-            output='screen',
-            parameters=[{
-                'voice':  LaunchConfiguration('tts_voice'),
-                'speed':  LaunchConfiguration('tts_speed'),
-                'device': LaunchConfiguration('tts_device'),
-                'volume': LaunchConfiguration('tts_volume'),
-                'use_trt': True,
-            }],
-        ),
+        # ── TTS node — Kokoro TTS (TensorRT GPU) — delayed to avoid GPU OOM ──
+        TimerAction(period=10.0, actions=[
+            Node(
+                package='vector_tts',
+                executable='tts_node',
+                name='tts_node',
+                output='screen',
+                parameters=[{
+                    'voice':  LaunchConfiguration('tts_voice'),
+                    'speed':  LaunchConfiguration('tts_speed'),
+                    'device': LaunchConfiguration('tts_device'),
+                    'volume': LaunchConfiguration('tts_volume'),
+                    'use_trt': True,
+                }],
+            ),
+        ]),
 
     ])
