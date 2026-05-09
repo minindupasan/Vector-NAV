@@ -322,8 +322,8 @@ class LLMEngine:
                                 if on_sentence and not _looks_like_tool_call(text):
                                     cleaned = _clean_for_tts(text)
                                     new_text = cleaned[emitted_len:]
-                                    # Find last sentence boundary in new text
-                                    last_boundary = _find_last_sentence_boundary(new_text)
+                                    # Find first sentence boundary in new text
+                                    last_boundary = _find_first_sentence_boundary(new_text)
                                     if last_boundary > 0:
                                         to_emit = new_text[:last_boundary].strip()
                                         if to_emit:
@@ -392,14 +392,27 @@ _SENTENCE_BOUNDARY_RE = re.compile(r'(?<=[.!?])\s+|\n')
 _MIN_CHUNK_SIZE = 40
 
 
-def _find_last_sentence_boundary(text: str) -> int:
-    """Find the position after the last sentence boundary in text,
-    only if the resulting chunk is at least _MIN_CHUNK_SIZE characters."""
-    last_pos = 0
+def _find_first_sentence_boundary(text: str) -> int:
+    """Find the position after the first sentence boundary in text,
+    only if the resulting chunk is at least _MIN_CHUNK_SIZE characters.
+    Also enforce a hard maximum length of 250 characters to prevent TTS engine crash."""
     for m in _SENTENCE_BOUNDARY_RE.finditer(text):
         if m.end() >= _MIN_CHUNK_SIZE:
-            last_pos = m.end()
-    return last_pos
+            return m.end()
+    
+    # If no natural boundary is found but the text is dangerously long, forcefully split it
+    if len(text) > 250:
+        # Try to split on comma
+        comma_pos = text.rfind(',', 0, 250)
+        if comma_pos > _MIN_CHUNK_SIZE:
+            return comma_pos + 1
+        # Try to split on space
+        space_pos = text.rfind(' ', 0, 250)
+        if space_pos > _MIN_CHUNK_SIZE:
+            return space_pos + 1
+        return 250
+            
+    return 0
 
 
 def _looks_like_tool_call(text: str) -> bool:

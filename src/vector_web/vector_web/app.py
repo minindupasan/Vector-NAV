@@ -28,7 +28,7 @@ from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
-from std_msgs.msg import String, Float32MultiArray
+from std_msgs.msg import String, Float32MultiArray, Float32
 from vector_interfaces.msg import RobotStats, SttResult
 from vector_interfaces.srv import (
     DeleteLocation, GetLocations, NavigateToLocation, SetLocation, RenameLocation
@@ -76,7 +76,7 @@ class UnifiedBridgeNode(Node):
         self._voice_clients: set[WebSocket] = set()
         self._ws_lock = threading.Lock()
         
-        self._speaker_volume = 1.0
+        self._speaker_volume = 3.0
         self._speaker_target = 'robot'
         
         self._latest_stats: dict = {
@@ -95,6 +95,8 @@ class UnifiedBridgeNode(Node):
         
         # Publishers
         self._stt_pub = self.create_publisher(SttResult, '/stt/text', 10)
+        self._cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        self._volume_pub = self.create_publisher(Float32, '/tts/volume', 10)
         
         # Subscribers
         self.create_subscription(RobotStats, '/robot_stats', self._on_stats, 10, callback_group=cb)
@@ -282,7 +284,7 @@ async def navigate(body: NavigateRequest):
 @app.get('/api/audio')
 async def get_audio_config():
     return JSONResponse({
-        'volume': bridge._speaker_volume if bridge else 1.0,
+        'volume': (bridge._speaker_volume / 5.0) if bridge else 1.0,
         'target': bridge._speaker_target if bridge else 'robot',
     })
 
@@ -291,7 +293,12 @@ async def set_audio_config(body: AudioConfigRequest):
     if bridge is None:
         return JSONResponse({'success': False, 'message': 'bridge not ready'})
     if body.volume is not None:
-        bridge._speaker_volume = max(0.0, min(2.5, float(body.volume)))
+        # Scale by 5.0 so that 50% on the web slider (0.5) maps to a 2.5x physical volume multiplier
+        scaled_volume = float(body.volume) * 5.0
+        bridge._speaker_volume = max(0.0, min(12.5, scaled_volume))
+        msg = Float32()
+        msg.data = float(bridge._speaker_volume)
+        bridge._volume_pub.publish(msg)
     if body.target is not None:
         if body.target in ('robot', 'browser'):
             bridge._speaker_target = body.target

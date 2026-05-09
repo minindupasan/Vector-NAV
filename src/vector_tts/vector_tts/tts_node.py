@@ -35,7 +35,7 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
-from std_msgs.msg import String, Bool, Float32MultiArray
+from std_msgs.msg import String, Bool, Float32MultiArray, Float32
 
 import sounddevice as sd
 from vector_tts.kokoro_trt import KokoroTRT
@@ -66,7 +66,7 @@ class TTSNode(Node):
         self.declare_parameter('voice', 'af_heart')
         self.declare_parameter('speed', 1.0)
         self.declare_parameter('device', '')
-        self.declare_parameter('volume', 1.0)
+        self.declare_parameter('volume', 3.0)
         self.declare_parameter('engine_dir', '/home/admin/models/kokoro_trt')
 
         self._voice_name = self.get_parameter('voice').get_parameter_value().string_value
@@ -118,14 +118,21 @@ class TTSNode(Node):
         self.create_subscription(
             String, '/tts/input', self._on_tts_input, 10,
         )
+        self.create_subscription(
+            Float32, '/tts/volume', self._on_volume, 10,
+        )
 
         self.get_logger().info(
             'TTSNode started\n'
-            '  Subscribes : /tts/input\n'
+            '  Subscribes : /tts/input, /tts/volume\n'
             '  Publishes  : /tts/speaking, /tts/audio/stream'
         )
 
     # ── ROS callback ─────────────────────────────────────────────────────
+
+    def _on_volume(self, msg: Float32) -> None:
+        self._volume = msg.data
+        self.get_logger().info(f'[TTS] Dynamic volume updated to {self._volume:.2f}x')
 
     def _on_tts_input(self, msg: String) -> None:
         text = msg.data.strip()
@@ -173,13 +180,15 @@ class TTSNode(Node):
                 continue
 
             t0 = time.monotonic()
-
-            audio_f = self._tts.synthesize(item, voice=self._voice_name, speed=self._speed)
+            
+            try:
+                audio_f = self._tts.synthesize(item, voice=self._voice_name, speed=self._speed)
+            except Exception as e:
+                self.get_logger().error(f'[TTS] Kokoro synthesis failed for "{item[:40]}...": {e}')
+                # Ensure we don't crash the thread. We skip this chunk.
+                continue
 
             if len(audio_f) > 0 and not self._interrupt.is_set():
-                if self._volume != 1.0:
-                    audio_f *= self._volume
-                    np.clip(audio_f, -1.0, 1.0, out=audio_f)
                 audio_f = _trim_silence(audio_f, self._sample_rate)
                 elapsed = (time.monotonic() - t0) * 1000
                 self.get_logger().info(f'[TTS] Synthesized in {elapsed:.0f}ms')
@@ -194,10 +203,25 @@ class TTSNode(Node):
     # ── Playback thread ──────────────────────────────────────────────────
 
     def _playback_loop(self) -> None:
-        """Read audio arrays from audio_queue, play with sd.play(blocking)."""
+        """Read audio arrays from audio_queue, play continuously per response."""
+        stream = None
+        try:
+            # Create the stream once, but keep it STOPPED when idle
+            stream = sd.OutputStream(
+                samplerate=self._sample_rate,
+                channels=1,
+                dtype='float32',
+                device=self._device,
+                latency='high'
+            )
+        except Exception as e:
+            self.get_logger().error(f'Failed to open audio stream: {e}')
+            return
+
         while True:
             audio = self._audio_queue.get()
             if audio is _END:
+                self._speaking_pub.publish(Bool(data=False))
                 continue
 
             self._interrupt.clear()
@@ -206,30 +230,55 @@ class TTSNode(Node):
             chunk_count = 0
 
             try:
-                sd.play(audio, samplerate=self._sample_rate,
-                        device=self._device, blocking=True)
+                stream.start()  # Start hardware only when we have audio to play!
+
+                def process_vol(a):
+                    if self._volume != 1.0:
+                        out = a * self._volume
+                        np.clip(out, -1.0, 1.0, out=out)
+                        return out.astype(np.float32)
+                    return a
+
+                def stream_array(arr):
+                    block_size = int(self._sample_rate * 0.05)  # 50ms blocks
+                    for i in range(0, len(arr), block_size):
+                        if self._interrupt.is_set():
+                            break
+                        stream.write(process_vol(arr[i:i+block_size]))
+
+                stream_array(audio)
                 chunk_count += 1
 
                 while not self._interrupt.is_set():
                     try:
-                        audio = self._audio_queue.get(timeout=3.0)
+                        # Poll queue rapidly (100ms) so we can feed silence if synthesis is lagging
+                        audio = self._audio_queue.get(timeout=0.1)
                     except queue.Empty:
-                        break
+                        # Feed 100ms of silence to keep ALSA buffer happy and prevent buzzing
+                        stream.write(np.zeros(int(self._sample_rate * 0.1), dtype=np.float32))
+                        continue
+
                     if audio is _END:
                         break
                     if not self._interrupt.is_set():
-                        sd.play(audio, samplerate=self._sample_rate,
-                                device=self._device, blocking=True)
+                        stream_array(audio)
                         chunk_count += 1
 
-                elapsed = (time.monotonic() - t0) * 1000
-                self.get_logger().info(
-                    f'[TTS] Playback complete ({elapsed:.0f}ms, {chunk_count} chunks)'
-                )
+                # Flush the ALSA buffer
+                silence = np.zeros(int(self._sample_rate * 0.5), dtype=np.float32)
+                stream.write(silence)
+
             except Exception as e:
                 self.get_logger().error(f'TTS playback failed: {e}')
             finally:
+                stream.stop()  # Stop hardware when done to prevent idle distortion
                 self._speaking_pub.publish(Bool(data=False))
+                
+                elapsed = (time.monotonic() - t0) * 1000
+                if chunk_count > 0:
+                    self.get_logger().info(
+                        f'[TTS] Playback complete ({elapsed:.0f}ms, {chunk_count} chunks)'
+                    )
 
     # ── Helpers ───────────────────────────────────────────────────────────
 
@@ -245,9 +294,6 @@ class TTSNode(Node):
     def _synthesize_to_array(self, text: str) -> np.ndarray:
         """Synthesize text and return as float32 audio array."""
         audio_f = self._tts.synthesize(text, voice=self._voice_name, speed=self._speed)
-        if self._volume != 1.0:
-            audio_f = audio_f * self._volume
-            np.clip(audio_f, -1.0, 1.0, out=audio_f)
         return _trim_silence(audio_f, self._sample_rate)
 
 

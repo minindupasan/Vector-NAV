@@ -28,7 +28,7 @@ def generate_launch_description():
         DeclareLaunchArgument('tts_voice',   default_value='af_heart'),
         DeclareLaunchArgument('tts_speed',   default_value='1.0'),
         DeclareLaunchArgument('tts_device',  default_value=''),
-        DeclareLaunchArgument('tts_volume',  default_value='1.0'),
+        DeclareLaunchArgument('tts_volume',  default_value='3.0'),
         DeclareLaunchArgument('stt_model',   default_value='base.en'),
 
         LogInfo(msg='Starting VECTOR NAV — STT + RAG + LLM + TTS nodes'),
