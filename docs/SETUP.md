@@ -205,7 +205,7 @@ The first run downloads Llama-3.2-3B (~6GB) and quantizes it (~10 min):
 
 ```bash
 cd ~/vector_nav
-./scripts/run_llm.sh
+./scripts/run_assistant.sh
 ```
 
 Wait for this line in the logs:
@@ -224,19 +224,19 @@ cannot handle natively. This fix runs automatically and only modifies files once
 
 ## Running the System
 
-### Quick Start (2 terminals)
+### Quick Start (Single Command)
 
-**Terminal 1 — Start the LLM server:**
+**Start the Assistant (LLM + Voice Pipeline):**
 ```bash
 cd ~/vector_nav
-./scripts/run_llm.sh
-# Wait for "system ready", then Ctrl+C to detach
+./scripts/run_assistant.sh
 ```
+*(Wait for "NanoLLM server is UP!", then the ROS2 pipeline will start automatically)*
 
-**Terminal 2 — Launch ROS2 nodes (RAG + LLM + TTS):**
+**Start the Web Interface (Optional):**
 ```bash
-source ~/vector_nav/env.sh
-ros2 launch vector_llm vector_chatbot.launch.py
+cd ~/vector_nav
+./scripts/run_web.sh
 ```
 
 ### With Custom Parameters
@@ -564,7 +564,7 @@ ss -tlnp | grep 49000
 
 # If not, restart the container
 docker rm -f nano_llm_server
-./scripts/run_llm.sh
+./scripts/run_assistant.sh
 ```
 
 ### No audio output from TTS
@@ -592,7 +592,7 @@ each query automatically. If it persists:
 ```bash
 # Restart the LLM container to clear all state
 docker rm -f nano_llm_server
-./scripts/run_llm.sh
+./scripts/run_assistant.sh
 ```
 
 ### PackageNotFoundError on launch

@@ -87,10 +87,10 @@ echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
 source ~/.bashrc
 ```
 
-### 1b. Launch NanoLLM + Llama-3.2-3B-Instruct
+### 1b. Launch Assistant (NanoLLM + Voice Pipeline)
 ```bash
-# See scripts/run_llm.sh for Docker container launch
-bash ~/vector_nav/scripts/run_llm.sh
+# See scripts/run_assistant.sh for consolidated launch
+bash ~/vector_nav/scripts/run_assistant.sh
 ```
 
 ### 1c. Install Python AI Stack

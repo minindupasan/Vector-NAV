@@ -12,11 +12,11 @@ install_service() {
     sudo chmod 644 /etc/systemd/system/"$name"
 }
 
-install_service vector-llm.service
+install_service vector-assistant.service
 install_service vector-web.service
 
 # Allow admin to run Jetson power/clock tools without a password prompt
-# (needed by run_llm_headless.sh which runs as the admin user under systemd)
+# (needed by run_assistant.sh which runs as the admin user under systemd)
 SUDOERS_FILE=/etc/sudoers.d/vector-nav-jetson
 if [ ! -f "$SUDOERS_FILE" ]; then
     echo "Creating sudoers entry for nvpmodel / jetson_clocks..."
@@ -27,18 +27,22 @@ fi
 
 sudo systemctl daemon-reload
 
+# Enable linger so user services (like PulseAudio) run without an active session
+echo "Enabling linger for admin user..."
+sudo loginctl enable-linger admin
+
 echo ""
 echo "Services installed. To enable on boot:"
-echo "  sudo systemctl enable vector-llm vector-web"
+echo "  sudo systemctl enable vector-assistant vector-web"
 echo ""
 echo "To start now:"
-echo "  sudo systemctl start vector-llm"
+echo "  sudo systemctl start vector-assistant"
 echo "  sudo systemctl start vector-web"
 echo ""
 echo "To check status:"
-echo "  sudo systemctl status vector-llm"
+echo "  sudo systemctl status vector-assistant"
 echo "  sudo systemctl status vector-web"
 echo ""
 echo "To follow logs:"
-echo "  journalctl -u vector-llm -f"
+echo "  journalctl -u vector-assistant -f"
 echo "  journalctl -u vector-web -f"

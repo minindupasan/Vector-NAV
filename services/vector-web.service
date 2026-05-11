@@ -14,7 +14,7 @@ Environment=HOME=/home/admin
 Environment=PATH=/home/admin/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=PYTHONPATH=/home/admin/vector_nav/src/vector_web
 
-# NanoLLM WebSocket endpoint (served by vector-llm.service)
+# NanoLLM WebSocket endpoint (served by vector-assistant.service)
 Environment=WS_URL=wss://localhost:49000
 
 # TTS engine

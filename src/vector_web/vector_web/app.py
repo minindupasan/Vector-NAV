@@ -348,7 +348,7 @@ async def voice_ws(websocket: WebSocket):
                         res.confidence = 1.0
                         bridge._stt_pub.publish(res)
                 elif mtype == 'clear_chat':
-                    logger.info("Voice: Clear conversation context")
+                    logger.info("RECEIVED clear_chat command from browser")
                     bridge._clear_pub.publish(Bool(data=True))
                 elif mtype == 'interrupt':
                     logger.info("Voice: Interrupting response")

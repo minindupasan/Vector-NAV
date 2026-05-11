@@ -205,9 +205,16 @@ class LLMEngine:
         return _parse_response(response)
 
     def reset_history(self) -> None:
-        """Clear conversation history on the server."""
+        """Clear conversation history on the server and re-apply system prompt."""
+        self._turn_count = 0
         if self._ws:
+            logger.info("Sending chat_history_reset to NanoLLM...")
             self._send_json({'chat_history_reset': True})
+            
+            # Re-send system prompt to ensure the model maintains its persona/rules
+            if hasattr(self, '_system_prompt') and self._system_prompt:
+                logger.info("Re-applying system prompt after reset...")
+                self._send_json({'system_prompt': self._system_prompt})
 
     # ── WebSocket protocol ────────────────────────────────────────────────
 

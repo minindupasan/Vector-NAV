@@ -184,6 +184,7 @@ const voxBadge = document.getElementById('vox-badge');
 const estopBtn = document.getElementById('estop-btn');
 const resumeBtn = document.getElementById('resume-btn');
 const stopTopBtn = document.getElementById('stop-btn-top');
+const clearChatBtn = document.getElementById('clear-chat-btn');
 
 // Waypoints Refs
 const locInput = document.getElementById('loc-input');
@@ -678,6 +679,17 @@ stopTopBtn?.addEventListener('click', () => {
     sendWS({ type: 'stop' });
     fetch(`${location.protocol}//${location.hostname}:${APP_PORT}/api/navigate/cancel`, { method: 'POST' }).catch(() => {});
     addLog('NAV', 'Motion halted');
+});
+
+clearChatBtn?.addEventListener('click', () => {
+    if (confirm('Clear conversation history?')) {
+        if (voiceWs && voiceWs.readyState === WebSocket.OPEN) {
+            voiceWs.send(JSON.stringify({ type: 'clear_chat' }));
+        }
+        chat.innerHTML = '';
+        if (chatEmpty) chat.appendChild(chatEmpty);
+        addLog('SYS', 'Conversation history cleared');
+    }
 });
 
 // ── Map / Scan tabs ─────────────────────────────────────────────────────────
