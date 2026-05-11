@@ -185,7 +185,7 @@ class LLMNode(Node):
             def on_chunk(sentence):
                 nonlocal chunk_count
                 if self._interrupted.is_set():
-                    return
+                    return False
                 chunk_count += 1
                 self.get_logger().info(
                     f'[T+{(time.monotonic()-t0)*1000:.0f}ms] TTS chunk {chunk_count}: "{sentence}"'
@@ -194,7 +194,7 @@ class LLMNode(Node):
 
             self.get_logger().info(f'[T+{(time.monotonic()-t0)*1000:.0f}ms] LLM inference start')
             result = self._llm.chat_stream(
-                text, context=context, on_chunk=on_chunk
+                text, context=context, on_chunk=on_chunk, check_interrupt=self._interrupted.is_set
             )
             self.get_logger().info(f'[T+{(time.monotonic()-t0)*1000:.0f}ms] LLM inference complete')
         except Exception as e:

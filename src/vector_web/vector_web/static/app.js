@@ -108,6 +108,18 @@ function handleManualSend() {
     const text = chatInput.value.trim();
     if (!text) return;
 
+    if (state !== 'idle') {
+        if (voiceWs && voiceWs.readyState === WebSocket.OPEN) {
+            voiceWs.send(JSON.stringify({ type: 'interrupt' }));
+        }
+        browserAudio.queue = [];
+        browserAudio.playing = false;
+        if (browserAudio.currentAudio) {
+            browserAudio.currentAudio.pause();
+            browserAudio.currentAudio = null;
+        }
+    }
+
     // Add to local chat immediately
     addMessage('user', text);
     sendText(text);
@@ -220,7 +232,18 @@ function connectBridge() {
 
 // ── Voice Logic ───────────────────────────────────────────────────────────────
 async function startRecording() {
-    if (state !== 'idle') return;
+    if (state === 'recording') return;
+    
+    if (voiceWs && voiceWs.readyState === WebSocket.OPEN) {
+        voiceWs.send(JSON.stringify({ type: 'interrupt' }));
+    }
+    browserAudio.queue = [];
+    browserAudio.playing = false;
+    if (browserAudio.currentAudio) {
+        browserAudio.currentAudio.pause();
+        browserAudio.currentAudio = null;
+    }
+
     if (!recognition) {
         showToast('Speech recognition not supported — use Chrome/Edge', false);
         return;
@@ -270,7 +293,7 @@ function handleVoiceMessage(evt) {
 }
 
 // ── Browser TTS playback queue ──────────────────────────────────────────────
-const browserAudio = { queue: [], playing: false, volume: 1.0 };
+const browserAudio = { queue: [], playing: false, volume: 1.0, currentAudio: null };
 function playBrowserWav(blob) {
     const url = URL.createObjectURL(blob);
     browserAudio.queue.push(url);
@@ -278,9 +301,10 @@ function playBrowserWav(blob) {
 }
 function _drainBrowserAudio() {
     const url = browserAudio.queue.shift();
-    if (!url) { browserAudio.playing = false; return; }
+    if (!url) { browserAudio.playing = false; browserAudio.currentAudio = null; return; }
     browserAudio.playing = true;
     const a = new Audio(url);
+    browserAudio.currentAudio = a;
     a.volume = Math.max(0, Math.min(1, browserAudio.volume));
     a.onended = a.onerror = () => { URL.revokeObjectURL(url); _drainBrowserAudio(); };
     a.play().catch(() => { URL.revokeObjectURL(url); _drainBrowserAudio(); });
@@ -583,7 +607,7 @@ maxSpeedSlider.oninput = () => {
     maxSpeedVal.textContent = maxLinear.toFixed(2);
 };
 
-micBtn.onmousedown = micBtn.ontouchstart = (e) => { e.preventDefault(); if (state === 'idle') startRecording(); };
+micBtn.onmousedown = micBtn.ontouchstart = (e) => { e.preventDefault(); startRecording(); };
 micBtn.onmouseup = micBtn.onmouseleave = micBtn.ontouchend = (e) => { e.preventDefault(); stopRecording(); };
 
 if (chatSendBtn) {
@@ -604,7 +628,7 @@ if (chatInput) {
 window.addEventListener('keydown', (e) => {
     if (e.code === 'Space' && !e.repeat && document.activeElement.tagName !== 'INPUT') {
         e.preventDefault();
-        if (state === 'idle' && !micBtn.disabled) startRecording();
+        if (!micBtn.disabled) startRecording();
     }
 });
 

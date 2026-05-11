@@ -219,46 +219,41 @@ class TTSNode(Node):
     def _playback_loop(self) -> None:
         """Read audio arrays from audio_queue, play continuously through a persistent stream."""
         # ── Hardware Native Config ──
-        TARGET_SR = 48000
-        TARGET_CHANNELS = 2
+        TARGET_SR = 24000
+        TARGET_CHANNELS = 1
         
         playback_device = self._device or 'pulse'
         
         def process_audio(mono_24k):
-            """Upsample 24k -> 48k and Mono -> Stereo with volume."""
+            """Apply volume and convert to float32."""
             vol = self._volume
             scaled = mono_24k * vol
             np.clip(scaled, -1.0, 1.0, out=scaled)
-            
-            # 2. Upsample (Repeat 2x)
-            mono_48k = np.repeat(scaled, 2)
-            
-            # Stereo Expansion
-            stereo_48k = np.column_stack((mono_48k, mono_48k))
-            return stereo_48k.astype(np.float32)
+            return scaled.astype(np.float32)
 
         try:
-            self.get_logger().info(f"[TTS] Opening persistent 48kHz Stereo output: {playback_device}")
+            self.get_logger().info(f"[TTS] Opening persistent {TARGET_SR}Hz output: {playback_device}")
             # Use 50ms blocksize for standard stability
+            CHUNK_SIZE = int(TARGET_SR * 0.05) # 1200 samples
             with sd.OutputStream(
                 samplerate=TARGET_SR,
                 channels=TARGET_CHANNELS,
                 dtype='float32',
                 device=playback_device,
                 latency='high',
-                blocksize=2400  # 50ms chunks at 48kHz
+                blocksize=CHUNK_SIZE
             ) as stream:
                 stream.start()
                 
-                # 50ms of silence at 48kHz Stereo
-                idle_silence = np.zeros((2400, 2), dtype=np.float32)
+                # 50ms of silence
+                idle_silence = np.zeros((CHUNK_SIZE, 1), dtype=np.float32)
 
                 while True:
                     try:
                         # Small timeout to check for interrupt or END frequently
                         audio = self._audio_queue.get(timeout=0.005)
                     except queue.Empty:
-                        # Feed 50ms of silence to keep the buffer saturated
+                        # Feed silence to keep the buffer saturated
                         stream.write(idle_silence)
                         continue
 
@@ -273,24 +268,26 @@ class TTSNode(Node):
                         self._speaking_pub.publish(Bool(data=True))
                         t0 = time.monotonic()
                         
+                        # Process whole audio and make it 2D (N, 1) for sounddevice Mono
+                        audio_processed = process_audio(audio)
+                        audio_processed = np.expand_dims(audio_processed, axis=1)
+                        
                         # Play the chunk
-                        # We process in 50ms blocks (1200 samples at 24k -> 2400 samples at 48k)
-                        block_size_24k = 1200
-                        for i in range(0, len(audio), block_size_24k):
+                        # We process in 50ms blocks
+                        for i in range(0, len(audio_processed), CHUNK_SIZE):
                             if self._interrupt.is_set():
                                 break
-                            chunk = audio[i:i+block_size_24k]
-                            # Ensure we write exactly 2400 samples at 48k for the fixed blocksize
-                            processed = process_audio(chunk)
-                            if processed.shape[0] == 2400:
-                                stream.write(processed)
+                            chunk = audio_processed[i:i+CHUNK_SIZE]
+                            # Ensure we write exactly CHUNK_SIZE for the fixed blocksize
+                            if chunk.shape[0] == CHUNK_SIZE:
+                                stream.write(chunk)
                             else:
                                 # Pad the last small chunk with silence if needed
-                                padded = np.zeros((2400, 2), dtype=np.float32)
-                                padded[:processed.shape[0], :] = processed
+                                padded = np.zeros((CHUNK_SIZE, 1), dtype=np.float32)
+                                padded[:chunk.shape[0], :] = chunk
                                 stream.write(padded)
 
-                        if len(audio) > 2400:
+                        if len(audio) > CHUNK_SIZE:
                             elapsed = (time.monotonic() - t0) * 1000
                             self.get_logger().info(f'[TTS] Played chunk in {elapsed:.0f}ms')
                     else:

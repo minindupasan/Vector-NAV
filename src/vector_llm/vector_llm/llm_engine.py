@@ -171,7 +171,7 @@ class LLMEngine:
 
         return _parse_response(response)
 
-    def chat_stream(self, user_text: str, context: str = "", on_chunk=None):
+    def chat_stream(self, user_text: str, context: str = "", on_chunk=None, check_interrupt=None):
         """
         Streaming chat — calls on_chunk(sentence) for each complete sentence
         as it arrives. Returns the final parsed result dict.
@@ -188,13 +188,13 @@ class LLMEngine:
         with self._lock:
             try:
                 self._send_text(prompt)
-                response = self._collect_response_streaming(on_sentence=on_chunk)
+                response = self._collect_response_streaming(on_sentence=on_chunk, check_interrupt=check_interrupt)
             except Exception as e:
                 logger.warning(f"WebSocket error during chat_stream(), reconnecting: {e}")
                 self._ws = None
                 self.connect()
                 self._send_text(prompt)
-                response = self._collect_response_streaming(on_sentence=on_chunk)
+                response = self._collect_response_streaming(on_sentence=on_chunk, check_interrupt=check_interrupt)
 
             # Keep short conversation memory, reset when it gets too long
             self._turn_count += 1
@@ -287,7 +287,7 @@ class LLMEngine:
                     return payload
         return None
 
-    def _collect_response_streaming(self, on_sentence=None) -> str:
+    def _collect_response_streaming(self, on_sentence=None, check_interrupt=None) -> str:
         """
         Collect streaming chat_history updates. When on_sentence is provided,
         emit each complete sentence (ending in . ! ? or newline) for TTS.
@@ -298,6 +298,11 @@ class LLMEngine:
         deadline = time.time() + self.response_timeout
 
         while time.time() < deadline:
+            if check_interrupt and check_interrupt():
+                logger.info("Interrupt detected in engine, aborting generation.")
+                self._send_json({'chat_history_reset': True})
+                return _clean_for_tts(last_raw)
+
             result = self._recv_message(timeout=1.0)
 
             if result is None:
@@ -327,7 +332,9 @@ class LLMEngine:
                                     if last_boundary > 0:
                                         to_emit = new_text[:last_boundary].strip()
                                         if to_emit:
-                                            on_sentence(to_emit)
+                                            if on_sentence(to_emit) is False:
+                                                self._send_json({'chat_history_reset': True})
+                                                return full_response
                                         emitted_len += last_boundary
                             break
 
@@ -385,8 +392,8 @@ def _clean_for_tts(text: str) -> str:
     return text.strip()
 
 
-# Sentence boundaries: . ! ? followed by space/newline, or newline itself
-_SENTENCE_BOUNDARY_RE = re.compile(r'(?<=[.!?])(?:\s+|\n|$)')
+# Sentence boundaries: . ! ? : followed by space/newline, or newline itself
+_SENTENCE_BOUNDARY_RE = re.compile(r'(?:(?<=[.!?:])(?:\s+|$))|\n+')
 
 # Minimum chunk size to emit — avoids splitting too early but allows "Hello!"
 _MIN_CHUNK_SIZE = 6
