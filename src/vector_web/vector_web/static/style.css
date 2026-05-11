@@ -267,6 +267,43 @@ html, body {
 .chat-empty .ico { width: 28px; height: 28px; opacity: 0.4; }
 .btn-estop.active { box-shadow: 0 0 0 2px var(--vn-danger), 0 8px 28px rgba(255,59,48,0.65); animation: vn-pulse 1.4s var(--vn-ease-std) infinite; }
 
+/* Manual Chat Input (Vector Nav Theme) */
+.chat-input-row {
+    display: flex; gap: var(--vn-space-2); padding: 6px 6px 6px 14px;
+    background: var(--vn-bg-soft); 
+    border: 1px solid var(--vn-border);
+    border-radius: var(--vn-radius-pill); 
+    margin: 0 var(--vn-space-2) var(--vn-space-3) var(--vn-space-2);
+    transition: all var(--vn-dur-base) var(--vn-ease-std);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
+}
+.chat-input-row:focus-within { 
+    border-color: var(--vn-border-bright); 
+    background: var(--vn-bg-hover);
+    box-shadow: 0 0 20px rgba(250,183,183,0.08);
+}
+.chat-input-row input {
+    flex: 1; background: transparent; border: 0; outline: none;
+    color: var(--vn-fg); font-family: var(--vn-font-body); font-size: var(--vn-fs-small);
+    font-weight: 500;
+}
+.chat-input-row input::placeholder { color: var(--vn-fg-muted); font-weight: 400; }
+
+.chat-send-btn {
+    width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+    background: var(--vn-fg); border: 0; color: var(--vn-bg); cursor: pointer;
+    border-radius: 50%;
+    transition: all var(--vn-dur-base) var(--vn-ease-std);
+    box-shadow: var(--vn-shadow-pop);
+}
+.chat-send-btn:hover { 
+    transform: scale(1.1) rotate(-10deg);
+    background: var(--vn-brand);
+    box-shadow: 0 0 12px rgba(250,183,183,0.4);
+}
+.chat-send-btn:active { transform: scale(0.9); }
+.chat-send-btn .ico { width: 14px; height: 14px; margin-left: 2px; }
+
 /* Audio config popover */
 .col-chat .card-flex { position: relative; }
 .audio-pop {

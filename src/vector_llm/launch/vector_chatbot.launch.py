@@ -27,11 +27,11 @@ def generate_launch_description():
         DeclareLaunchArgument('tools_file',  default_value=''),
         DeclareLaunchArgument('tts_voice',   default_value='af_heart'),
         DeclareLaunchArgument('tts_speed',   default_value='1.0'),
-        DeclareLaunchArgument('tts_device',  default_value=''),
-        DeclareLaunchArgument('tts_volume',  default_value='3.0'),
+        DeclareLaunchArgument('tts_device',  default_value='pulse'),
+        DeclareLaunchArgument('tts_volume',  default_value='2.0'),
         DeclareLaunchArgument('stt_model',   default_value='base.en'),
 
-        LogInfo(msg='Starting VECTOR NAV — STT + RAG + LLM + TTS nodes'),
+        LogInfo(msg='Starting VECTOR NAV — RAG + LLM + TTS nodes'),
 
         # ── RAG node — owns the embedding model ───────────────────────────────
         Node(
@@ -61,21 +61,19 @@ def generate_launch_description():
             ),
         ]),
 
-        # ── TTS node — Kokoro TTS (TensorRT GPU) — delayed to avoid GPU OOM ──
-        TimerAction(period=10.0, actions=[
-            Node(
-                package='vector_tts',
-                executable='tts_node',
-                name='tts_node',
-                output='screen',
-                parameters=[{
-                    'voice':  LaunchConfiguration('tts_voice'),
-                    'speed':  LaunchConfiguration('tts_speed'),
-                    'device': LaunchConfiguration('tts_device'),
-                    'volume': LaunchConfiguration('tts_volume'),
-                    'use_trt': True,
-                }],
-            ),
-        ]),
+        # ── TTS node — Kokoro TTS (TensorRT GPU) ──
+        Node(
+            package='vector_tts',
+            executable='tts_node',
+            name='tts_node',
+            output='screen',
+            parameters=[{
+                'voice':  LaunchConfiguration('tts_voice'),
+                'speed':  LaunchConfiguration('tts_speed'),
+                'device': LaunchConfiguration('tts_device'),
+                'volume': LaunchConfiguration('tts_volume'),
+                'use_trt': True,
+            }],
+        ),
 
     ])
