@@ -23,7 +23,6 @@ setup(
     maintainer_email='vector@vector.nav',
     description='Hardware control for VECTOR NAV — motor drivers, encoders, IMU',
     license='MIT',
-    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'motor_driver = vector_control.motor_driver_node:main',

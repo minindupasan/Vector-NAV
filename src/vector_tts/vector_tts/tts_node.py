@@ -41,7 +41,6 @@ import sounddevice as sd
 from vector_tts.kokoro_trt import KokoroTRT
 
 import os
-os.environ.setdefault('SDL_AUDIODRIVER', 'pulseaudio')
 sd.default.extra_settings = None
 
 _END = object()
@@ -148,6 +147,8 @@ class TTSNode(Node):
         if not text:
             return
 
+        self.get_logger().info(f"[TTS] Received input: {text}")
+
         if text == self._INTERRUPT_TAG:
             self.get_logger().info('[TTS] Barge-in interrupt!')
             self._interrupt.set()
@@ -160,6 +161,7 @@ class TTSNode(Node):
             if self._dropping_stale:
                 self.get_logger().info('[TTS] Stale [end] dropped, ready for new input')
                 self._dropping_stale = False
+                self._interrupt.clear()  # Ensure next response can play
                 return
             self._text_queue.put(_END)
         elif text == self._GREETING_TAG:
@@ -170,8 +172,11 @@ class TTSNode(Node):
             if self._dropping_stale:
                 self.get_logger().info(f'[TTS] Dropping stale: "{text[:60]}"')
                 return
+            
             if self._interrupt.is_set():
-                return
+                self.get_logger().info('[TTS] Clearing interrupt flag for new sequence')
+                self._interrupt.clear()
+                
             self.get_logger().info(f'[TTS] Queued: "{text[:80]}"')
             self._text_queue.put(text)
 
@@ -221,7 +226,6 @@ class TTSNode(Node):
         
         def process_audio(mono_24k):
             """Upsample 24k -> 48k and Mono -> Stereo with volume."""
-            # 1. Volume
             vol = self._volume
             scaled = mono_24k * vol
             np.clip(scaled, -1.0, 1.0, out=scaled)
@@ -229,13 +233,13 @@ class TTSNode(Node):
             # 2. Upsample (Repeat 2x)
             mono_48k = np.repeat(scaled, 2)
             
-            # 3. Stereo Expansion
+            # Stereo Expansion
             stereo_48k = np.column_stack((mono_48k, mono_48k))
             return stereo_48k.astype(np.float32)
 
         try:
             self.get_logger().info(f"[TTS] Opening persistent 48kHz Stereo output: {playback_device}")
-            # Increase latency and set a fixed blocksize for stability
+            # Use 50ms blocksize for standard stability
             with sd.OutputStream(
                 samplerate=TARGET_SR,
                 channels=TARGET_CHANNELS,
@@ -263,29 +267,35 @@ class TTSNode(Node):
                         continue
 
                     self._interrupt.clear()
-                    self._speaking_pub.publish(Bool(data=True))
-                    t0 = time.monotonic()
                     
-                    # Play the chunk
-                    # We process in 50ms blocks (1200 samples at 24k -> 2400 samples at 48k)
-                    block_size_24k = 1200
-                    for i in range(0, len(audio), block_size_24k):
-                        if self._interrupt.is_set():
-                            break
-                        chunk = audio[i:i+block_size_24k]
-                        # Ensure we write exactly 2400 samples at 48k for the fixed blocksize
-                        processed = process_audio(chunk)
-                        if processed.shape[0] == 2400:
-                            stream.write(processed)
-                        else:
-                            # Pad the last small chunk with silence if needed
-                            padded = np.zeros((2400, 2), dtype=np.float32)
-                            padded[:processed.shape[0], :] = processed
-                            stream.write(padded)
+                    # Only play to local speaker if target is 'robot'
+                    if self._target == 'robot':
+                        self._speaking_pub.publish(Bool(data=True))
+                        t0 = time.monotonic()
+                        
+                        # Play the chunk
+                        # We process in 50ms blocks (1200 samples at 24k -> 2400 samples at 48k)
+                        block_size_24k = 1200
+                        for i in range(0, len(audio), block_size_24k):
+                            if self._interrupt.is_set():
+                                break
+                            chunk = audio[i:i+block_size_24k]
+                            # Ensure we write exactly 2400 samples at 48k for the fixed blocksize
+                            processed = process_audio(chunk)
+                            if processed.shape[0] == 2400:
+                                stream.write(processed)
+                            else:
+                                # Pad the last small chunk with silence if needed
+                                padded = np.zeros((2400, 2), dtype=np.float32)
+                                padded[:processed.shape[0], :] = processed
+                                stream.write(padded)
 
-                    if len(audio) > 4800:
-                        elapsed = (time.monotonic() - t0) * 1000
-                        self.get_logger().info(f'[TTS] Played chunk in {elapsed:.0f}ms')
+                        if len(audio) > 2400:
+                            elapsed = (time.monotonic() - t0) * 1000
+                            self.get_logger().info(f'[TTS] Played chunk in {elapsed:.0f}ms')
+                    else:
+                        # Just log that we are skipping local playback
+                        self.get_logger().info(f"[TTS] Skipping local playback (target={self._target})", once=True)
 
         except Exception as e:
             self.get_logger().error(f'TTS playback stream failed: {e}')

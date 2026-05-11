@@ -18,7 +18,6 @@ setup(
     maintainer_email='todo@example.com',
     description='LLM communication node for VECTOR NAV',
     license='Apache-2.0',
-    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'llm_node = vector_llm.llm_node:main',

@@ -22,7 +22,6 @@ setup(
     maintainer_email='minindupasan@gmail.com',
     description='Web control dashboard bridge for Vector Nav',
     license='MIT',
-    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'bridge_node = vector_bridge.bridge_node:main',

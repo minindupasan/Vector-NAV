@@ -58,7 +58,7 @@ class STTNode(Node):
         self.declare_parameter('model_size', 'base.en')
         self.declare_parameter('wake_word', 'hey_jarvis_v0.1')
         self.declare_parameter('wake_threshold', 0.5)
-        self.declare_parameter('barge_in_threshold', 0.2)
+        self.declare_parameter('barge_in_threshold', 0.4)
         self.declare_parameter('energy_threshold', 0.01)
         self.declare_parameter('silence_duration', 1.0)
         self.declare_parameter('min_duration', 0.3)

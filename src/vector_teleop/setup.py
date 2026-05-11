@@ -21,7 +21,6 @@ setup(
     maintainer_email='jetson@vector.nav',
     description='Beautiful Qt-based teleoperation GUI for VECTOR NAV',
     license='MIT',
-    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'teleop_gui = vector_teleop.teleop_gui:main',

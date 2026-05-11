@@ -21,7 +21,6 @@ setup(
     maintainer_email='minindu@autocar.local',
     description='YOLO11s object detection for autonomous car',
     license='MIT',
-    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'detector = yolo_detector.detector_node:main',

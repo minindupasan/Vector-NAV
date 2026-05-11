@@ -25,7 +25,6 @@ setup(
     maintainer_email='todo@example.com',
     description='RAG engine ROS2 node for VECTOR NAV',
     license='Apache-2.0',
-    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'rag_node = vector_rag.rag_node:main',

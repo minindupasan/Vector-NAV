@@ -28,7 +28,7 @@ from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
-from std_msgs.msg import String, Float32MultiArray, Float32
+from std_msgs.msg import String, Float32MultiArray, Float32, Bool
 from vector_interfaces.msg import RobotStats, SttResult
 from vector_interfaces.srv import (
     DeleteLocation, GetLocations, NavigateToLocation, SetLocation, RenameLocation
@@ -97,6 +97,10 @@ class UnifiedBridgeNode(Node):
         self._stt_pub = self.create_publisher(SttResult, '/stt/text', 10)
         self._cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self._volume_pub = self.create_publisher(Float32, '/tts/volume', 10)
+        self._clear_pub = self.create_publisher(Bool, '/llm/clear', 10)
+        self._interrupt_pub = self.create_publisher(Bool, '/llm/interrupt', 10)
+        self._tts_pub = self.create_publisher(String, '/tts/input', 10)
+        self._target_pub = self.create_publisher(String, '/tts/target', 10)
         
         # Subscribers
         self.create_subscription(RobotStats, '/robot_stats', self._on_stats, 10, callback_group=cb)
@@ -169,6 +173,11 @@ class UnifiedBridgeNode(Node):
         if text == '[end]':
             asyncio.run_coroutine_threadsafe(
                 self._broadcast_voice({'type': 'done'}),
+                self._loop
+            )
+        elif text == '[interrupt]':
+            asyncio.run_coroutine_threadsafe(
+                self._broadcast_voice({'type': 'interrupt'}),
                 self._loop
             )
         elif text and not text.startswith('['):
@@ -302,6 +311,9 @@ async def set_audio_config(body: AudioConfigRequest):
     if body.target is not None:
         if body.target in ('robot', 'browser'):
             bridge._speaker_target = body.target
+            msg = String()
+            msg.data = bridge._speaker_target
+            bridge._target_pub.publish(msg)
     return JSONResponse({
         'success': True,
         'volume': bridge._speaker_volume,
@@ -327,13 +339,21 @@ async def voice_ws(websocket: WebSocket):
 
             if 'text' in msg and msg['text'] is not None:
                 payload = json.loads(msg['text'])
-                if payload.get('type') == 'text':
+                mtype = payload.get('type')
+                if mtype == 'text':
                     text = (payload.get('text') or '').strip()
                     if text:
                         res = SttResult()
                         res.text = text
                         res.confidence = 1.0
                         bridge._stt_pub.publish(res)
+                elif mtype == 'clear_chat':
+                    logger.info("Voice: Clear conversation context")
+                    bridge._clear_pub.publish(Bool(data=True))
+                elif mtype == 'interrupt':
+                    logger.info("Voice: Interrupting response")
+                    bridge._interrupt_pub.publish(Bool(data=True))
+                    bridge._tts_pub.publish(String(data='[interrupt]'))
     except WebSocketDisconnect: pass
     finally:
         with bridge._ws_lock: bridge._voice_clients.discard(websocket)

@@ -15,7 +15,7 @@ fi
 # ----------------------------------
 
 echo "----------------------------------------------------"
-echo "  VECTOR NAV — Llama-3.2-1B"
+echo "  VECTOR NAV — Llama-3.2-3B"
 echo "----------------------------------------------------"
 
 if [ -z "$HUGGINGFACE_TOKEN" ]; then
@@ -40,8 +40,7 @@ exec script -e -q -c "/home/admin/jetson-containers/jetson-containers run \
   --env HUGGINGFACE_TOKEN=$HUGGINGFACE_TOKEN \
   -v \"$SCRIPT_DIR/fix_tied_embeddings.py:/tmp/fix_tied_embeddings.py:ro\" \
   dustynv/nano_llm:r36.4.0 \
-  bash -c \"huggingface-cli download meta-llama/Llama-3.2-3B-Instruct \
-      --local-dir-use-symlinks False && \
+  bash -c \"(huggingface-cli download meta-llama/Llama-3.2-3B-Instruct --local-dir-use-symlinks False || echo 'Warning: Hugging Face download failed, attempting to run with cached model...') && \
     python3 /tmp/fix_tied_embeddings.py meta-llama/Llama-3.2-3B-Instruct && \
     python3 -m nano_llm.agents.web_chat \
       --model meta-llama/Llama-3.2-3B-Instruct \

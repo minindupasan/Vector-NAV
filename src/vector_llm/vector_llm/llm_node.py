@@ -85,6 +85,7 @@ class LLMNode(Node):
 
         # Interrupt flag — set by barge-in, stops on_chunk from publishing stale text
         self._interrupted = threading.Event()
+        self._is_generating = False
 
         # Reentrant group lets /rag/context and /llm/interrupt callbacks fire while _on_stt is blocking
         cb = ReentrantCallbackGroup()
@@ -98,11 +99,12 @@ class LLMNode(Node):
         self.create_subscription(SttResult,  '/stt/text',    self._on_stt,         10, callback_group=cb)
         self.create_subscription(RagContext, '/rag/context', self._on_rag_context, 10, callback_group=cb)
         self.create_subscription(Bool,       '/llm/interrupt', self._on_interrupt,  10, callback_group=cb)
+        self.create_subscription(Bool,       '/llm/clear',     self._on_clear,      10, callback_group=cb)
 
         mode = 'internal RAG' if self._use_internal_rag else 'delegated to rag_node'
         self.get_logger().info(
             f'LLMNode started  RAG={mode}\n'
-            '  Subscribes : /stt/text, /rag/context, /llm/interrupt\n'
+            '  Subscribes : /stt/text, /rag/context, /llm/interrupt, /llm/clear\n'
             '  Publishes  : /tts/input, /llm/tool_call, /rag/query'
         )
 
@@ -125,6 +127,13 @@ class LLMNode(Node):
         if msg.data:
             self.get_logger().info('Barge-in interrupt received — stopping current response')
             self._interrupted.set()
+            if not self._is_generating:
+                self._tts_pub.publish(String(data='[end]'))
+
+    def _on_clear(self, msg: Bool) -> None:
+        if msg.data:
+            self.get_logger().info('Clearing conversation history...')
+            self._llm.reset_history()
 
     def _on_rag_context(self, msg: RagContext) -> None:
         self._rag_context = msg.context
@@ -169,6 +178,7 @@ class LLMNode(Node):
 
     def _run_llm(self, text: str, context: str, t0: float) -> None:
         self._interrupted.clear()
+        self._is_generating = True
         try:
             chunk_count = 0
 
@@ -192,11 +202,12 @@ class LLMNode(Node):
             # TTS has pre-cached "Sorry, I could not process that request."
             self._tts_pub.publish(String(data='Sorry, I could not process that request.'))
             self._tts_pub.publish(String(data='[end]'))
-
+            self._is_generating = False
             return
 
         # Signal TTS that this response is done (close the audio stream)
         self._tts_pub.publish(String(data='[end]'))
+        self._is_generating = False
 
         if result['type'] == 'tool_call':
             out = LLMToolCall()

@@ -41,7 +41,7 @@ html, body {
 }
 
 .brand { display: flex; align-items: center; gap: 14px; min-width: 0; color: var(--vn-fg); }
-.brand-mark { height: 26px; width: auto; display: block; filter: drop-shadow(0 0 12px rgba(250,183,183,0.35)); }
+.brand-mark { height: 26px; width: auto; display: block; }
 .brand-text { display: none; }
 .brand-name {
     font-family: var(--vn-font-display);

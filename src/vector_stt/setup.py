@@ -17,7 +17,6 @@ setup(
     maintainer_email='todo@example.com',
     description='Speech-to-text ROS2 node for VECTOR NAV',
     license='Apache-2.0',
-    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'stt_node = vector_stt.stt_node:main',
