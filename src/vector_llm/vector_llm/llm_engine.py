@@ -386,10 +386,10 @@ def _clean_for_tts(text: str) -> str:
 
 
 # Sentence boundaries: . ! ? followed by space/newline, or newline itself
-_SENTENCE_BOUNDARY_RE = re.compile(r'(?<=[.!?])\s+|\n')
+_SENTENCE_BOUNDARY_RE = re.compile(r'(?<=[.!?])(?:\s+|\n|$)')
 
-# Minimum chunk size to emit — avoids stuttering on short sentences like "Sure."
-_MIN_CHUNK_SIZE = 40
+# Minimum chunk size to emit — avoids splitting too early but allows "Hello!"
+_MIN_CHUNK_SIZE = 6
 
 
 def _find_first_sentence_boundary(text: str) -> int:

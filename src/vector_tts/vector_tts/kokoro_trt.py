@@ -61,17 +61,22 @@ class _TRTRunner:
 
     def __call__(self, **kwargs) -> dict:
         """
-        Run inference. Pass input tensors as keyword arguments (numpy arrays).
+        Run inference. Pass input tensors as keyword arguments (numpy arrays or torch tensors).
         Returns dict of output name → numpy array.
         """
         # Set input shapes and bind input buffers
         gpu_buffers = {}
         for name, dtype in self.inputs.items():
-            arr = kwargs[name]
-            if arr.dtype != dtype:
-                arr = arr.astype(dtype)
-            self.context.set_input_shape(name, arr.shape)
-            t = torch.from_numpy(arr).cuda()
+            val = kwargs[name]
+            if isinstance(val, torch.Tensor):
+                t = val
+                if t.device.type != 'cuda':
+                    t = t.cuda()
+            else:
+                t = torch.from_numpy(val).cuda()
+            
+            # TRT context needs to know the shape before we can get output shapes
+            self.context.set_input_shape(name, t.shape)
             gpu_buffers[name] = t
             self.context.set_tensor_address(name, t.data_ptr())
 
@@ -79,6 +84,7 @@ class _TRTRunner:
         results = {}
         for name, dtype in self.outputs.items():
             shape = self.context.get_tensor_shape(name)
+            # Use torch for allocation (faster and keeps on GPU)
             t = torch.empty(tuple(shape), dtype=torch.float32, device='cuda')
             gpu_buffers[name] = t
             self.context.set_tensor_address(name, t.data_ptr())
@@ -265,7 +271,8 @@ class KokoroTRT:
         # Generate audio-rate randoms for the source module (replaces the
         # torch.randn_like calls that TRT 10 cannot compile).
         audio_len = f0.shape[1] * 300  # f0_upsamp scale_factor
-        randn_sine = np.random.randn(1, audio_len, 9).astype(np.float32)
+        randn_sine = torch.randn((1, audio_len, 9), dtype=torch.float32, device='cuda')
+        
         dec_out = self._decoder(
             asr=asr.astype(np.float32),
             f0=f0.astype(np.float32),
