@@ -66,7 +66,7 @@ class TTSNode(Node):
         self.declare_parameter('voice', 'af_heart')
         self.declare_parameter('speed', 1.0)
         self.declare_parameter('device', '')
-        self.declare_parameter('volume', 3.0)
+        self.declare_parameter('volume', 1.0)
         self.declare_parameter('engine_dir', '/home/admin/models/kokoro_trt')
 
         self._voice_name = self.get_parameter('voice').get_parameter_value().string_value
@@ -121,14 +121,23 @@ class TTSNode(Node):
         self.create_subscription(
             Float32, '/tts/volume', self._on_volume, 10,
         )
+        self.create_subscription(
+            String, '/tts/target', self._on_target, 10,
+        )
+
+        self._target = 'robot'
 
         self.get_logger().info(
             'TTSNode started\n'
-            '  Subscribes : /tts/input, /tts/volume\n'
+            '  Subscribes : /tts/input, /tts/volume, /tts/target\n'
             '  Publishes  : /tts/speaking, /tts/audio/stream'
         )
 
     # ── ROS callback ─────────────────────────────────────────────────────
+
+    def _on_target(self, msg: String) -> None:
+        self._target = msg.data.lower()
+        self.get_logger().info(f'[TTS] Output target updated to {self._target}')
 
     def _on_volume(self, msg: Float32) -> None:
         self._volume = msg.data
@@ -203,82 +212,85 @@ class TTSNode(Node):
     # ── Playback thread ──────────────────────────────────────────────────
 
     def _playback_loop(self) -> None:
-        """Read audio arrays from audio_queue, play continuously per response."""
-        stream = None
+        """Read audio arrays from audio_queue, play continuously through a persistent stream."""
+        # ── Hardware Native Config ──
+        TARGET_SR = 48000
+        TARGET_CHANNELS = 2
+        
+        playback_device = self._device or 'pulse'
+        
+        def process_audio(mono_24k):
+            """Upsample 24k -> 48k and Mono -> Stereo with volume."""
+            # 1. Volume
+            vol = self._volume
+            scaled = mono_24k * vol
+            np.clip(scaled, -1.0, 1.0, out=scaled)
+            
+            # 2. Upsample (Repeat 2x)
+            mono_48k = np.repeat(scaled, 2)
+            
+            # 3. Stereo Expansion
+            stereo_48k = np.column_stack((mono_48k, mono_48k))
+            return stereo_48k.astype(np.float32)
+
         try:
-            # Create the stream once, but keep it STOPPED when idle
-            stream = sd.OutputStream(
-                samplerate=self._sample_rate,
-                channels=1,
+            self.get_logger().info(f"[TTS] Opening persistent 48kHz Stereo output: {playback_device}")
+            # Increase latency and set a fixed blocksize for stability
+            with sd.OutputStream(
+                samplerate=TARGET_SR,
+                channels=TARGET_CHANNELS,
                 dtype='float32',
-                device=self._device,
-                latency='high'
-            )
-        except Exception as e:
-            self.get_logger().error(f'Failed to open audio stream: {e}')
-            return
+                device=playback_device,
+                latency='high',
+                blocksize=2400  # 50ms chunks at 48kHz
+            ) as stream:
+                stream.start()
+                
+                # 50ms of silence at 48kHz Stereo
+                idle_silence = np.zeros((2400, 2), dtype=np.float32)
 
-        while True:
-            audio = self._audio_queue.get()
-            if audio is _END:
-                self._speaking_pub.publish(Bool(data=False))
-                continue
-
-            self._interrupt.clear()
-            self._speaking_pub.publish(Bool(data=True))
-            t0 = time.monotonic()
-            chunk_count = 0
-
-            try:
-                stream.start()  # Start hardware only when we have audio to play!
-
-                def process_vol(a):
-                    if self._volume != 1.0:
-                        out = a * self._volume
-                        np.clip(out, -1.0, 1.0, out=out)
-                        return out.astype(np.float32)
-                    return a
-
-                def stream_array(arr):
-                    block_size = int(self._sample_rate * 0.05)  # 50ms blocks
-                    for i in range(0, len(arr), block_size):
-                        if self._interrupt.is_set():
-                            break
-                        stream.write(process_vol(arr[i:i+block_size]))
-
-                stream_array(audio)
-                chunk_count += 1
-
-                while not self._interrupt.is_set():
+                while True:
                     try:
-                        # Poll queue rapidly (100ms) so we can feed silence if synthesis is lagging
-                        audio = self._audio_queue.get(timeout=0.1)
+                        # Small timeout to check for interrupt or END frequently
+                        audio = self._audio_queue.get(timeout=0.005)
                     except queue.Empty:
-                        # Feed 100ms of silence to keep ALSA buffer happy and prevent buzzing
-                        stream.write(np.zeros(int(self._sample_rate * 0.1), dtype=np.float32))
+                        # Feed 50ms of silence to keep the buffer saturated
+                        stream.write(idle_silence)
                         continue
 
                     if audio is _END:
-                        break
-                    if not self._interrupt.is_set():
-                        stream_array(audio)
-                        chunk_count += 1
+                        self._speaking_pub.publish(Bool(data=False))
+                        continue
 
-                # Flush the ALSA buffer
-                silence = np.zeros(int(self._sample_rate * 0.5), dtype=np.float32)
-                stream.write(silence)
+                    self._interrupt.clear()
+                    self._speaking_pub.publish(Bool(data=True))
+                    t0 = time.monotonic()
+                    
+                    # Play the chunk
+                    # We process in 50ms blocks (1200 samples at 24k -> 2400 samples at 48k)
+                    block_size_24k = 1200
+                    for i in range(0, len(audio), block_size_24k):
+                        if self._interrupt.is_set():
+                            break
+                        chunk = audio[i:i+block_size_24k]
+                        # Ensure we write exactly 2400 samples at 48k for the fixed blocksize
+                        processed = process_audio(chunk)
+                        if processed.shape[0] == 2400:
+                            stream.write(processed)
+                        else:
+                            # Pad the last small chunk with silence if needed
+                            padded = np.zeros((2400, 2), dtype=np.float32)
+                            padded[:processed.shape[0], :] = processed
+                            stream.write(padded)
 
-            except Exception as e:
-                self.get_logger().error(f'TTS playback failed: {e}')
-            finally:
-                stream.stop()  # Stop hardware when done to prevent idle distortion
-                self._speaking_pub.publish(Bool(data=False))
-                
-                elapsed = (time.monotonic() - t0) * 1000
-                if chunk_count > 0:
-                    self.get_logger().info(
-                        f'[TTS] Playback complete ({elapsed:.0f}ms, {chunk_count} chunks)'
-                    )
+                    if len(audio) > 4800:
+                        elapsed = (time.monotonic() - t0) * 1000
+                        self.get_logger().info(f'[TTS] Played chunk in {elapsed:.0f}ms')
+
+        except Exception as e:
+            self.get_logger().error(f'TTS playback stream failed: {e}')
+        finally:
+            self._speaking_pub.publish(Bool(data=False))
 
     # ── Helpers ───────────────────────────────────────────────────────────
 
