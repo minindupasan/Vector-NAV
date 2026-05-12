@@ -115,6 +115,12 @@ class LLMNode(Node):
         text = msg.text.strip()
         if not text:
             return
+        # System-injected messages (confidence == -1.0) go straight to TTS
+        if msg.confidence == -1.0:
+            self.get_logger().info(f'System event → TTS: "{text}"')
+            self._tts_pub.publish(String(data=text))
+            self._tts_pub.publish(String(data='[end]'))
+            return
         t0 = time.monotonic()
         self.get_logger().info(
             f'[T+0ms] Input: "{text}"  confidence={msg.confidence:.2f}  lang={msg.language or "?"}'
