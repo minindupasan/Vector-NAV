@@ -1,8 +1,8 @@
 [Unit]
 Description=Vector Nav — Assistant (LLM + Voice Pipeline)
 Documentation=https://github.com/dusty-nv/jetson-containers
-After=network-online.target docker.service
-Wants=network-online.target
+After=network-online.target docker.service vector-llm.service
+Wants=network-online.target vector-llm.service
 Requires=docker.service
 
 [Service]
@@ -14,18 +14,9 @@ EnvironmentFile=/home/admin/vector_nav/.env.local
 Environment=HOME=/home/admin
 Environment=XDG_RUNTIME_DIR=/run/user/1000
 
-# Remove any stale container from a previous run before starting
-ExecStartPre=-/usr/bin/docker rm -f nano_llm_server
-
 ExecStart=/home/admin/vector_nav/scripts/run_assistant.sh
 
-# On stop, the main process (ros2 launch) receives SIGTERM and shuts down nodes.
-# Then, we clean up the detached Docker container.
-ExecStopPost=-/usr/bin/docker stop nano_llm_server
-ExecStopPost=-/usr/bin/docker rm -f nano_llm_server
-
-# Give the container time to pull/load the model on first run (~10 min worst case)
-TimeoutStartSec=600
+# Give the ROS2 nodes time to shut down gracefully
 TimeoutStopSec=30
 
 Restart=on-failure

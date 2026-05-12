@@ -61,4 +61,12 @@ def generate_launch_description():
             parameters=[ekf_params],
             output='screen',
         ),
+
+        # System statistics publisher (CPU, Memory, Battery, IP)
+        Node(
+            package='vector_control',
+            executable='system_stats_node',
+            name='system_stats_node',
+            output='screen',
+        ),
     ])

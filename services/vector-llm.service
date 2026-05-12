@@ -1,0 +1,35 @@
+[Unit]
+Description=Vector Nav — LLM Server (NanoLLM)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=admin
+Group=docker
+
+WorkingDirectory=/home/admin/vector_nav
+EnvironmentFile=/home/admin/vector_nav/.env.local
+Environment=HOME=/home/admin
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+
+ExecStart=/home/admin/vector_nav/scripts/run_llm.sh
+
+# On stop, clean up the container
+ExecStopPost=-/usr/bin/docker stop nano_llm_server
+ExecStopPost=-/usr/bin/docker rm -f nano_llm_server
+
+# Give time to pull/load model
+TimeoutStartSec=600
+TimeoutStopSec=30
+
+Restart=always
+RestartSec=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vector-llm
+
+[Install]
+WantedBy=multi-user.target

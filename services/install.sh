@@ -13,14 +13,15 @@ install_service() {
 }
 
 install_service vector-assistant.service
+install_service vector-llm.service
 install_service vector-web.service
 
-# Allow admin to run Jetson power/clock tools without a password prompt
-# (needed by run_assistant.sh which runs as the admin user under systemd)
+# Allow admin to run Jetson power/clock tools and docker without a password prompt
+# (needed by run_assistant.sh / run_llm.sh which run as the admin user under systemd)
 SUDOERS_FILE=/etc/sudoers.d/vector-nav-jetson
 if [ ! -f "$SUDOERS_FILE" ]; then
-    echo "Creating sudoers entry for nvpmodel / jetson_clocks..."
-    echo 'admin ALL=(ALL) NOPASSWD: /usr/sbin/nvpmodel, /usr/bin/jetson_clocks' \
+    echo "Creating sudoers entry for nvpmodel / jetson_clocks / docker / systemctl..."
+    echo 'admin ALL=(ALL) NOPASSWD: /usr/sbin/nvpmodel, /usr/bin/jetson_clocks, /usr/bin/docker, /usr/bin/systemctl start vector-*, /usr/bin/systemctl stop vector-*, /usr/bin/systemctl restart vector-*' \
         | sudo tee "$SUDOERS_FILE" > /dev/null
     sudo chmod 440 "$SUDOERS_FILE"
 fi
@@ -33,16 +34,19 @@ sudo loginctl enable-linger admin
 
 echo ""
 echo "Services installed. To enable on boot:"
-echo "  sudo systemctl enable vector-assistant vector-web"
+echo "  sudo systemctl enable vector-llm vector-assistant vector-web"
 echo ""
 echo "To start now:"
+echo "  sudo systemctl start vector-llm"
 echo "  sudo systemctl start vector-assistant"
 echo "  sudo systemctl start vector-web"
 echo ""
 echo "To check status:"
+echo "  sudo systemctl status vector-llm"
 echo "  sudo systemctl status vector-assistant"
 echo "  sudo systemctl status vector-web"
 echo ""
 echo "To follow logs:"
+echo "  journalctl -u vector-llm -f"
 echo "  journalctl -u vector-assistant -f"
 echo "  journalctl -u vector-web -f"

@@ -193,6 +193,30 @@ const locList = document.getElementById('locations-list');
 const stopNavBtn = document.getElementById('stop-nav-btn');
 const toast = document.getElementById('toast');
 
+// Modal Refs
+const pillJetson = document.getElementById('pill-jetson');
+const pillPi = document.getElementById('pill-pi');
+
+if (pillJetson) pillJetson.onclick = () => openModal('modal-jetson');
+if (pillPi) pillPi.onclick = () => openModal('modal-pi');
+
+function openModal(id) {
+    const modal = document.getElementById(id);
+    if (modal) modal.classList.add('active');
+}
+
+function closeModal(id) {
+    const modal = document.getElementById(id);
+    if (modal) modal.classList.remove('active');
+}
+
+// Close modals on overlay click
+window.onclick = (event) => {
+    if (event.target.classList.contains('modal-overlay')) {
+        event.target.classList.remove('active');
+    }
+};
+
 // Spectrum is fully handled by effects.js (window.__vnSpectrum).
 
 // ── Connections ───────────────────────────────────────────────────────────────
@@ -228,6 +252,9 @@ function connectBridge() {
     bridgeWs.onmessage = (evt) => {
         const msg = JSON.parse(evt.data);
         if (msg.type === 'stats') updateStats(msg);
+        else if (msg.type === 'scan') {
+            if (window.__vnLidar) window.__vnLidar.push(msg.ranges);
+        }
     };
 }
 
@@ -394,6 +421,66 @@ function updateStats(msg) {
         if (poseTh) poseTh.textContent = `${yawDeg.toFixed(1)}°`;
         if (statHead) statHead.textContent = yawNorm.toFixed(1);
         if (headNeedle) headNeedle.style.transform = `rotate(${yawNorm}deg)`;
+    }
+
+    // Pi Metrics
+    if (msg.pi_cpu !== undefined) {
+        const val = `${msg.pi_cpu.toFixed(0)}%`;
+        const pillVal = document.getElementById('pill-pi-val');
+        if (pillVal) pillVal.textContent = val;
+        const modalVal = document.getElementById('modal-pi-cpu');
+        if (modalVal) modalVal.textContent = val;
+    }
+    if (msg.pi_mem !== undefined) {
+        const modalVal = document.getElementById('modal-pi-mem');
+        if (modalVal) modalVal.textContent = `${msg.pi_mem.toFixed(0)}%`;
+    }
+    if (msg.pi_temp !== undefined) {
+        const modalVal = document.getElementById('modal-pi-temp');
+        if (modalVal) modalVal.textContent = `${msg.pi_temp.toFixed(0)}°C`;
+    }
+    if (msg.pi_ip !== undefined) {
+        const modalVal = document.getElementById('modal-pi-ip');
+        if (modalVal) modalVal.textContent = msg.pi_ip;
+    }
+
+    // Jetson Metrics
+    if (msg.jetson_cpu !== undefined) {
+        const val = `${msg.jetson_cpu.toFixed(0)}%`;
+        const pillVal = document.getElementById('pill-jetson-val');
+        if (pillVal) pillVal.textContent = val;
+        const modalVal = document.getElementById('modal-jetson-cpu');
+        if (modalVal) modalVal.textContent = val;
+    }
+    if (msg.jetson_gpu !== undefined) {
+        const modalVal = document.getElementById('modal-jetson-gpu');
+        if (modalVal) modalVal.textContent = `${msg.jetson_gpu.toFixed(0)}%`;
+    }
+    if (msg.jetson_mem !== undefined) {
+        const modalVal = document.getElementById('modal-jetson-mem');
+        if (modalVal) modalVal.textContent = `${msg.jetson_mem.toFixed(0)}%`;
+        const modalGb = document.getElementById('modal-jetson-mem-gb');
+        if (modalGb && msg.jetson_mem_used !== undefined && msg.jetson_mem_total !== undefined) {
+            modalGb.textContent = `${msg.jetson_mem_used.toFixed(1)} / ${msg.jetson_mem_total.toFixed(1)} GB`;
+        }
+    }
+    if (msg.jetson_temp !== undefined) {
+        const modalVal = document.getElementById('modal-jetson-temp');
+        if (modalVal) modalVal.textContent = `${msg.jetson_temp.toFixed(0)}°C`;
+    }
+    if (msg.jetson_ip !== undefined) {
+        const modalVal = document.getElementById('modal-jetson-ip');
+        if (modalVal) modalVal.textContent = msg.jetson_ip;
+    }
+
+    // Battery (from Pi)
+    if (msg.battery_percentage !== undefined) {
+        const modalVal = document.getElementById('modal-pi-batt');
+        if (modalVal) modalVal.textContent = `${msg.battery_percentage.toFixed(0)}%`;
+    }
+    if (msg.battery_voltage !== undefined) {
+        const modalVal = document.getElementById('modal-pi-volt');
+        if (modalVal) modalVal.textContent = `${msg.battery_voltage.toFixed(2)}V`;
     }
 }
 

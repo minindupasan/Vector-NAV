@@ -28,6 +28,7 @@ setup(
         'console_scripts': [
             'motor_driver = vector_control.motor_driver_node:main',
             'imu_publisher = vector_control.imu_node:main',
+            'system_stats_node = vector_control.system_stats_node:main',
         ],
     },
 )

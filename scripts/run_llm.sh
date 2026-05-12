@@ -30,17 +30,20 @@ sudo jetson_clocks
 
 # 2. Cleanup old instances
 echo "[2/4] Stopping old containers..."
-sudo docker rm -f nano_llm_server 2>/dev/null || true
+docker rm -f nano_llm_server 2>/dev/null || true
 
 # 3. Launch NanoLLM (Llama-3.2-3B)
 echo "[3/4] Starting NanoLLM Server..."
-exec script -e -q -c "/home/admin/jetson-containers/jetson-containers run \
+# We use --detach to avoid the "not a TTY" error in systemd.
+# The container will be cleaned up by ExecStopPost in the service.
+/home/admin/jetson-containers/jetson-containers run \
   --name nano_llm_server \
+  --detach \
   --dns 8.8.8.8 \
   --env HUGGINGFACE_TOKEN=$HUGGINGFACE_TOKEN \
-  -v \"$SCRIPT_DIR/fix_tied_embeddings.py:/tmp/fix_tied_embeddings.py:ro\" \
+  -v "$SCRIPT_DIR/fix_tied_embeddings.py:/tmp/fix_tied_embeddings.py:ro" \
   dustynv/nano_llm:r36.4.0 \
-  bash -c \"(huggingface-cli download meta-llama/Llama-3.2-3B-Instruct --local-dir-use-symlinks False || echo 'Warning: Hugging Face download failed, attempting to run with cached model...') && \
+  bash -c "(huggingface-cli download meta-llama/Llama-3.2-3B-Instruct --local-dir-use-symlinks False || echo 'Warning: Hugging Face download failed, attempting to run with cached model...') && \
     python3 /tmp/fix_tied_embeddings.py meta-llama/Llama-3.2-3B-Instruct && \
     python3 -m nano_llm.agents.web_chat \
       --model meta-llama/Llama-3.2-3B-Instruct \
@@ -52,4 +55,8 @@ exec script -e -q -c "/home/admin/jetson-containers/jetson-containers run \
       --top-p 0.9 \
       --repetition-penalty 1.1 \
       --chat-template llama-3 \
-      --system-prompt 'You are VECTOR NAV, an intelligent warehouse robot assistant. You have full conversational abilities and should answer questions directly and naturally. Be concise but helpful. You have access to physical navigation tools, but ONLY call a tool if the user explicitly commands you to move, dock, or stop. If they are just chatting, answering a question, or asking about you, just reply conversationally without tools.'\"" /dev/null
+      --system-prompt 'You are VECTOR NAV, an intelligent warehouse robot assistant. You have full conversational abilities and should answer questions directly and naturally. Be concise but helpful. You have access to physical navigation tools, but ONLY call a tool if the user explicitly commands you to move, dock, or stop. If they are just chatting, answering a question, or asking about you, just reply conversationally without tools.'"
+
+# Follow the logs in the foreground so systemd can track the process and show logs in journalctl
+echo "NanoLLM container started in background (ID: $(docker ps -q -f name=nano_llm_server)). Following logs..."
+docker logs -f nano_llm_server

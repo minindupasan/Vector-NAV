@@ -214,9 +214,21 @@
     const ranges = new Float32Array(NRAYS);     // current
     const rangesDraw = new Float32Array(NRAYS); // smoothed for render
     const intensity = new Float32Array(NRAYS);
-    const MAX_R = 12;            // 12m display
+    let MAX_R = 6;               // Variable range (zoomable)
     let sweepDeg = 0;            // rotating sensor head
     let scanFrames = 0;
+    let _hasRealData = false;
+    let lastScanTime = 0;
+
+    // Zoom controls
+    const zin = document.getElementById('zoom-in');
+    const zout = document.getElementById('zoom-out');
+    zin?.addEventListener('click', () => {
+      MAX_R = Math.max(2, MAX_R - 1);
+    });
+    zout?.addEventListener('click', () => {
+      MAX_R = Math.min(24, MAX_R + 2);
+    });
 
     function lresize() {
       const r = lc.getBoundingClientRect();
@@ -226,87 +238,32 @@
     lresize();
     window.addEventListener('resize', lresize);
 
-    // Synthetic environment — a few "walls" + dynamic obstacle so the
-    // visualization is interesting until /scan WebSocket lands.
-    function envRangeAt(angle) {
-      // angle in radians, 0=front
-      const x0 = 0, y0 = 0;
-      let r = MAX_R;
-      // walls: y = 4 (front), y = -3 (back), x = 5 (right), x = -4.5 (left)
-      const walls = [
-        {nx: 0, ny: 1, d: 4.0},
-        {nx: 0, ny: -1, d: 3.0},
-        {nx: 1, ny: 0, d: 5.0},
-        {nx: -1, ny: 0, d: 4.5},
-      ];
-      const dx = Math.cos(angle), dy = Math.sin(angle);
-      for (const w of walls) {
-        const denom = dx * w.nx + dy * w.ny;
-        if (denom > 0.0001) {
-          const t = w.d / denom;
-          if (t > 0 && t < r) r = t;
-        }
-      }
-      return r;
-    }
-    function obstacleHit(angle, t) {
-      // moving circular obstacle ahead-right
-      const ox = 2.6 + 0.6 * Math.sin(t * 0.6);
-      const oy = 1.8 + 0.4 * Math.cos(t * 0.4);
-      const orad = 0.35;
-      const dx = Math.cos(angle), dy = Math.sin(angle);
-      const b = -(dx * ox + dy * oy);
-      const c = ox * ox + oy * oy - orad * orad;
-      const disc = b * b - c;
-      if (disc < 0) return Infinity;
-      const t1 = -b - Math.sqrt(disc);
-      return t1 > 0 ? t1 : Infinity;
-    }
-    function pillarHit(angle, t, cx, cy, r0) {
-      const dx = Math.cos(angle), dy = Math.sin(angle);
-      const b = -(dx * cx + dy * cy);
-      const c = cx * cx + cy * cy - r0 * r0;
-      const disc = b * b - c;
-      if (disc < 0) return Infinity;
-      const t1 = -b - Math.sqrt(disc);
-      return t1 > 0 ? t1 : Infinity;
-    }
-
-    function sample(t) {
-      for (let i = 0; i < NRAYS; i++) {
-        const a = (i / NRAYS) * Math.PI * 2;
-        let r = envRangeAt(a);
-        r = Math.min(r, obstacleHit(a, t));
-        r = Math.min(r, pillarHit(a, t, -2.0, 0.5, 0.25));
-        r = Math.min(r, pillarHit(a, t, 1.2, -1.6, 0.18));
-        // sensor noise
-        r += (Math.random() - 0.5) * 0.015;
-        if (r > MAX_R) r = 0; // dropouts beyond range
-        ranges[i] = Math.max(0, r);
-        intensity[i] = ranges[i] > 0 ? 0.55 + 0.4 * Math.random() : 0;
-      }
-    }
-
     function ldraw(now) {
       requestAnimationFrame(ldraw);
       const t = now * 0.001;
-      // 5.5Hz: refresh every ~180ms; we sample every frame, sweep every frame
-      if (scanFrames++ % 2 === 0) sample(t);
+      
+      // Watchdog: If no data for > 1s, clear everything
+      if (_hasRealData && (now - lastScanTime > 1000)) {
+        ranges.fill(0);
+      }
+
+      scanFrames++; // Always increment for HUD/animation timing
       sweepDeg = (sweepDeg + 6) % 360;
 
       const W = lc.width, H = lc.height;
       const cx = W / 2, cy = H / 2;
-      const radius = Math.min(W, H) * 0.46;
+      const radius = Math.min(W, H) * 0.48;
       const pxPerM = radius / MAX_R;
 
       lctx.clearRect(0, 0, W, H);
 
-      // Range rings
+      // Range rings (dynamic steps)
+      const rStep = MAX_R <= 4 ? 1 : MAX_R <= 8 ? 2 : MAX_R <= 15 ? 3 : 5;
       lctx.strokeStyle = 'rgba(255,255,255,0.06)';
       lctx.lineWidth = 1 * ldpr;
       lctx.font = `${10 * ldpr}px ui-monospace, JetBrains Mono, monospace`;
       lctx.fillStyle = 'rgba(255,255,255,0.25)';
-      for (let m = 2; m <= 12; m += 2) {
+      for (let m = rStep; m <= MAX_R; m += rStep) {
         const rr = m * pxPerM;
         lctx.beginPath(); lctx.arc(cx, cy, rr, 0, Math.PI * 2); lctx.stroke();
         lctx.fillText(`${m}m`, cx + 3 * ldpr, cy - rr - 3 * ldpr);
@@ -317,7 +274,7 @@
       lctx.beginPath(); lctx.moveTo(cx, cy - radius); lctx.lineTo(cx, cy + radius); lctx.stroke();
       // Heading marker (forward)
       lctx.strokeStyle = 'rgba(250,183,183,0.5)';
-      lctx.lineWidth = 1.5 * ldpr;
+      lctx.lineWidth = 2 * ldpr;
       lctx.beginPath(); lctx.moveTo(cx, cy); lctx.lineTo(cx, cy - radius); lctx.stroke();
 
       // Sweep beam
@@ -348,7 +305,7 @@
       lctx.fillStyle = 'rgba(250,183,183,0.04)';
       lctx.fill();
       lctx.strokeStyle = 'rgba(250,183,183,0.20)';
-      lctx.lineWidth = 1 * ldpr;
+      lctx.lineWidth = 1.2 * ldpr;
       lctx.stroke();
 
       // Points
@@ -370,7 +327,7 @@
         // Highlight currently swept ray
         const sweepDelta = Math.abs(((i - sweepDeg) + NRAYS / 2 + NRAYS) % NRAYS - NRAYS / 2);
         const sweepBoost = sweepDelta < 18 ? (1 - sweepDelta / 18) : 0;
-        const sz = (1.4 + 1.2 * sweepBoost) * ldpr;
+        const sz = (1.8 + 1.2 * sweepBoost) * ldpr; // Smaller points
 
         lctx.fillStyle = col;
         lctx.beginPath(); lctx.arc(x, y, sz, 0, Math.PI * 2); lctx.fill();
@@ -390,13 +347,14 @@
 
       // Robot footprint at origin
       lctx.strokeStyle = 'rgba(255,255,255,0.55)';
-      lctx.lineWidth = 1.5 * ldpr;
-      lctx.beginPath(); lctx.arc(cx, cy, 6 * ldpr, 0, Math.PI * 2); lctx.stroke();
+      lctx.lineWidth = 2 * ldpr;
+      lctx.beginPath(); lctx.arc(cx, cy, 8 * ldpr, 0, Math.PI * 2); lctx.stroke();
       lctx.fillStyle = 'rgba(250,183,183,0.9)';
-      lctx.beginPath(); lctx.arc(cx, cy, 3 * ldpr, 0, Math.PI * 2); lctx.fill();
+      lctx.beginPath(); lctx.arc(cx, cy, 4 * ldpr, 0, Math.PI * 2); lctx.fill();
       // forward chevron
       lctx.strokeStyle = 'rgba(255,255,255,0.85)';
-      lctx.beginPath(); lctx.moveTo(cx, cy - 3 * ldpr); lctx.lineTo(cx, cy - 12 * ldpr); lctx.stroke();
+      lctx.lineWidth = 2.5 * ldpr;
+      lctx.beginPath(); lctx.moveTo(cx, cy - 4 * ldpr); lctx.lineTo(cx, cy - 16 * ldpr); lctx.stroke();
 
       // HUD update
       if (scanFrames % 6 === 0) {
@@ -417,10 +375,12 @@
       // ranges: Float32Array length 360, meters; 0 = no return
       push(rs) {
         if (!rs || !rs.length) return;
+        _hasRealData = true;
+        lastScanTime = performance.now();
         const n = Math.min(rs.length, NRAYS);
         for (let i = 0; i < n; i++) {
           const v = rs[i];
-          ranges[i] = (isFinite(v) && v > 0 && v <= MAX_R) ? v : 0;
+          ranges[i] = (isFinite(v) && v > 0) ? v : 0;
           intensity[i] = ranges[i] > 0 ? 0.85 : 0;
         }
       }

@@ -28,8 +28,9 @@ from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
+from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String, Float32MultiArray, Float32, Bool
-from vector_interfaces.msg import RobotStats, SttResult
+from vector_interfaces.msg import RobotStats, SttResult, SystemStats, BatteryStats
 from vector_interfaces.srv import (
     DeleteLocation, GetLocations, NavigateToLocation, SetLocation, RenameLocation
 )
@@ -104,10 +105,14 @@ class UnifiedBridgeNode(Node):
         
         # Subscribers
         self.create_subscription(RobotStats, '/robot_stats', self._on_stats, 10, callback_group=cb)
+        self.create_subscription(SystemStats, '/system_stats/pi', self._on_system_stats_pi, 10, callback_group=cb)
+        self.create_subscription(SystemStats, '/system_stats/jetson', self._on_system_stats_jetson, 10, callback_group=cb)
+        self.create_subscription(BatteryStats, '/battery', self._on_battery, 10, callback_group=cb)
         self.create_subscription(PoseWithCovarianceStamped, '/amcl_pose', self._on_pose, 10, callback_group=cb)
         self.create_subscription(SttResult, '/stt/text', self._on_stt, 10, callback_group=cb)
         self.create_subscription(String, '/tts/input', self._on_tts_input, 10, callback_group=cb)
         self.create_subscription(Float32MultiArray, '/tts/audio/stream', self._on_tts_audio, 10, callback_group=cb)
+        self.create_subscription(LaserScan, '/scan', self._on_scan, 10, callback_group=cb)
         
         # Services
         self._svc_navigate = self.create_client(NavigateToLocation, '/navigate_to_location', callback_group=cb)
@@ -138,14 +143,51 @@ class UnifiedBridgeNode(Node):
         self._cmd_vel_pub.publish(self._target_twist)
 
     def _on_stats(self, msg: RobotStats):
-        self._latest_stats.update({
-            'battery_voltage': round(msg.battery_voltage, 2),
-            'battery_percentage': round(msg.battery_percentage, 1),
+        update_data = {
             'navigation_status': msg.navigation_status,
             'current_location': msg.current_location,
             'status_message': msg.status_message,
             'linear_velocity': round(msg.linear_velocity, 3),
             'angular_velocity': round(msg.angular_velocity, 3),
+        }
+        # Only update battery if it's non-zero (avoid clobbering real battery data with defaults)
+        if msg.battery_voltage > 0.01:
+            update_data['battery_voltage'] = round(msg.battery_voltage, 2)
+            update_data['battery_percentage'] = round(msg.battery_percentage, 1)
+            
+        self._latest_stats.update(update_data)
+        asyncio.run_coroutine_threadsafe(self._broadcast(self._latest_stats), self._loop)
+
+    def _on_system_stats_pi(self, msg: SystemStats):
+        # Update specific fields for Pi
+        self._latest_stats.update({
+            'pi_cpu': round(msg.cpu_usage, 1),
+            'pi_mem': round(msg.memory_usage, 1),
+            'pi_temp': round(msg.temperature, 1),
+            'pi_ip': msg.ip_address,
+        })
+        # logger.debug(f"RPi Stats: CPU={msg.cpu_usage}% TEMP={msg.temperature}C")
+        asyncio.run_coroutine_threadsafe(self._broadcast(self._latest_stats), self._loop)
+
+    def _on_battery(self, msg: BatteryStats):
+        # Update battery from dedicated message
+        self._latest_stats.update({
+            'battery_voltage': round(msg.voltage, 2),
+            'battery_percentage': round(msg.percentage, 1),
+        })
+        # logger.debug(f"Battery: {msg.voltage}V ({msg.percentage}%)")
+        asyncio.run_coroutine_threadsafe(self._broadcast(self._latest_stats), self._loop)
+
+    def _on_system_stats_jetson(self, msg: SystemStats):
+        # Update specific fields for Jetson
+        self._latest_stats.update({
+            'jetson_cpu': round(msg.cpu_usage, 1),
+            'jetson_gpu': round(msg.gpu_usage, 1),
+            'jetson_mem': round(msg.memory_usage, 1),
+            'jetson_mem_used': round(msg.memory_used_gb, 2),
+            'jetson_mem_total': round(msg.memory_total_gb, 2),
+            'jetson_temp': round(msg.temperature, 1),
+            'jetson_ip': msg.ip_address,
         })
         asyncio.run_coroutine_threadsafe(self._broadcast(self._latest_stats), self._loop)
 
@@ -161,6 +203,23 @@ class UnifiedBridgeNode(Node):
             'yaw': round(yaw, 3),
         }
         asyncio.run_coroutine_threadsafe(self._broadcast(self._latest_stats), self._loop)
+
+    def _on_scan(self, msg: LaserScan):
+        # Downsample/Interpolate to 360 points for the UI if needed
+        # Most RPLidars provide ~360-400 points
+        ranges = list(msg.ranges)
+        # Replace inf/nan with 0 for JSON serialization
+        clean_ranges = [r if (math.isfinite(r) and r > 0) else 0.0 for r in ranges]
+        
+        # If we have significantly more than 360 pts, downsample for bandwidth
+        if len(clean_ranges) > 450:
+            step = len(clean_ranges) // 360
+            clean_ranges = clean_ranges[::step][:360]
+            
+        asyncio.run_coroutine_threadsafe(
+            self._broadcast({'type': 'scan', 'ranges': clean_ranges}),
+            self._loop
+        )
         
     def _on_stt(self, msg: SttResult):
         asyncio.run_coroutine_threadsafe(

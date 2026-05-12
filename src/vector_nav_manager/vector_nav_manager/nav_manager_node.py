@@ -146,18 +146,9 @@ class NavManagerNode(Node):
     def _publish_stats(self) -> None:
         msg = RobotStats()
         
-        # Simulate battery: start at 12.6V (full 3S) and drain slowly
-        # Real robots would read this from an ADC.
-        now = self.get_clock().now().nanoseconds / 1e9
-        # Cycle 12.6V to 11.1V over ~4 hours (14400s)
-        # For demo, let's just make it look "alive"
-        v_base = 12.6
-        v_min = 10.8
-        v_range = v_base - v_min
-        # Just a slow sine wave for demo
-        val = (math.sin(now / 1000.0) + 1.0) / 2.0
-        msg.battery_voltage = round(v_min + val * v_range, 2)
-        msg.battery_percentage = round(val * 100.0, 1)
+        # Simulated battery values are removed to avoid clobbering real data from RPi.
+        msg.battery_voltage = 0.0
+        msg.battery_percentage = 0.0
 
         with self._nav_lock:
             if self._goal_handle is not None:

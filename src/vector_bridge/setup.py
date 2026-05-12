@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'bridge_node = vector_bridge.bridge_node:main',
+            'jetson_stats_node = vector_bridge.jetson_stats_node:main',
         ],
     },
 )

@@ -38,24 +38,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# ── Python packages (GPIO, IMU) ────────────────────────────────────────────
+# ── Python packages (GPIO, IMU, Stats) ────────────────────────────────────────────
 RUN pip3 install --no-cache-dir \
     gpiozero \
     lgpio \
     smbus2 \
-    numpy
+    numpy \
+    psutil \
+    adafruit-circuitpython-ads1x15
 
 # ── Workspace setup ─────────────────────────────────────────────────────────
 ENV VECTOR_WS=/ros2_ws
 RUN mkdir -p ${VECTOR_WS}/src
 WORKDIR ${VECTOR_WS}
 
-# Copy vector_control package
+# Copy packages
+COPY vector_interfaces ${VECTOR_WS}/src/vector_interfaces
 COPY vector_control ${VECTOR_WS}/src/vector_control
 
 # Build packages
 RUN source /opt/ros/humble/setup.bash && \
-    colcon build --packages-select vector_control --symlink-install
+    colcon build --packages-select vector_interfaces vector_control --symlink-install
 
 # ── Entrypoint ──────────────────────────────────────────────────────────────
 COPY entrypoint.sh /entrypoint.sh
