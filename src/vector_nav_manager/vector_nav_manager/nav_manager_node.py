@@ -36,7 +36,7 @@ from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Quaternion
 from nav2_msgs.action import NavigateToPose
 from std_msgs.msg import Header
 
-from vector_interfaces.msg import LLMToolCall, RobotStats
+from vector_interfaces.msg import LLMToolCall, RobotStats, SttResult
 from vector_interfaces.srv import DeleteLocation, GetLocations, NavigateToLocation, SetLocation, RenameLocation
 
 CURRENT_POSE_FILE = Path('/tmp/vector_current_pose.json')
@@ -95,6 +95,7 @@ class NavManagerNode(Node):
 
         # ── Publishers ────────────────────────────────────────────────────────
         self._stats_pub = self.create_publisher(RobotStats, '/robot_stats', 10)
+        self._stt_pub = self.create_publisher(SttResult, '/stt/text', 10)
         self.create_timer(1.0, self._publish_stats, callback_group=cb)
 
         # ── Subscriptions ─────────────────────────────────────────────────────
@@ -363,6 +364,11 @@ class NavManagerNode(Node):
         with self._nav_lock:
             self._goal_handle = None
         self.get_logger().info(f'Navigation complete, status={status}')
+        if status == 4:  # SUCCEEDED
+            msg = SttResult()
+            msg.text = 'Navigated to the goal successfully.'
+            msg.confidence = -1.0
+            self._stt_pub.publish(msg)
 
     def _cancel_nav(self) -> None:
         with self._nav_lock:

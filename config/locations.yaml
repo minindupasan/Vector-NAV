@@ -1,1 +1,9 @@
-locations: {}
+locations:
+  home:
+    x: 0.4175
+    y: -0.9277
+    yaw: 0.5894
+  warehouse:
+    x: 2.3909
+    y: 2.6216
+    yaw: -2.1398
