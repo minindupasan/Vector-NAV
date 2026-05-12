@@ -149,34 +149,59 @@ html, body {
 
 /* ── Battery cell ─────────────────────────────────────────────── */
 .battery-cell {
-    display: flex; align-items: center; gap: 10px;
-    padding: 6px 10px 6px 6px;
+    display: flex; align-items: center; gap: 12px;
+    padding: 4px 12px 4px 4px;
     background: var(--vn-bg-soft);
     border: 1px solid var(--vn-border-strong);
     border-radius: var(--vn-radius-sm);
 }
-.batt-svg { width: 56px; height: 28px; }
-.batt-shell { stroke: var(--vn-border-bright); stroke-width: 1; }
-.batt-tip   { fill: var(--vn-border-bright); }
-.batt-fill {
-    fill: var(--vn-success);
-    transition: width var(--vn-dur-slow) var(--vn-ease-std), fill var(--vn-dur-slow) var(--vn-ease-std);
-    transform-origin: left;
+
+.battery-anim-wrap {
+    width: 88px; height: 38px;
+    position: relative;
+    flex-shrink: 0;
 }
-.battery-cell[data-state="warn"] .batt-fill { fill: var(--vn-warn); }
-.battery-cell[data-state="low"]  .batt-fill { fill: var(--vn-danger); }
-.batt-wave { will-change: transform; }
-.batt-wave-back  { fill: rgba(255,255,255,0.12); animation: vn-batt-wave 5.2s linear infinite; }
-.batt-wave-front { fill: rgba(255,255,255,0.24); animation: vn-batt-wave 4.0s linear infinite reverse; animation-delay: -2.6s; }
-@keyframes vn-batt-wave {
-    from { transform: translateX(0); }
-    to   { transform: translateX(36px); }
+
+.batt-svg-new {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%) rotate(90deg);
+}
+
+.batt-wave-slow  { animation: liquid-wave 5s linear infinite; }
+.batt-wave-med-r { animation: liquid-wave-r 3.4s linear infinite; }
+.batt-wave-med   { animation: liquid-wave 2.3s linear infinite; }
+.batt-wave-fast  { animation: liquid-wave-r 1.5s linear infinite; }
+
+.batt-shimmer { animation: bat-shimmer 2.8s ease-in-out infinite; }
+
+.animate-pulse {
+    animation: vn-bat-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes liquid-wave {
+    from { transform: translateX(0px); }
+    to   { transform: translateX(-36px); }
+}
+@keyframes liquid-wave-r {
+    from { transform: translateX(-36px); }
+    to   { transform: translateX(0px); }
+}
+@keyframes bat-shimmer {
+    0%   { transform: translateX(-50px) skewX(-12deg); opacity: 0; }
+    25%  { opacity: 1; }
+    75%  { opacity: 1; }
+    100% { transform: translateX(50px) skewX(-12deg); opacity: 0; }
+}
+@keyframes vn-bat-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .5; }
 }
 
 .batt-readout { display: grid; grid-template-columns: auto auto; gap: 0 4px; line-height: 1; }
 .batt-pct { font-family: var(--vn-font-mono); font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--vn-fg); }
 .batt-unit { font-family: var(--vn-font-mono); font-size: 12px; color: var(--vn-fg-dim); align-self: center; }
-.batt-eta { grid-column: 1 / -1; font-family: var(--vn-font-mono); font-size: 9.5px; color: var(--vn-fg-muted); margin-top: 4px; letter-spacing: 0.05em; }
+.batt-voltage { grid-column: 1 / -1; font-family: var(--vn-font-mono); font-size: 10px; color: var(--vn-fg-muted); margin-top: 2px; font-weight: 600; }
 
 /* ── Workspace grid ───────────────────────────────────────────── */
 .workspace {

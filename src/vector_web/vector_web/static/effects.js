@@ -9,47 +9,67 @@
   // ── Battery ───────────────────────────────────────────────
   const cell = document.getElementById('battery-cell');
   const pctEl = document.getElementById('batt-pct');
-  const etaEl = document.getElementById('batt-eta');
-  const fillEl = cell?.querySelector('.batt-fill');
-  const fillClip = document.getElementById('batt-fill-clip-rect');
-  const waveBack  = cell?.querySelector('.batt-wave-back path');
-  const waveFront = cell?.querySelector('.batt-wave-front path');
+  const voltEl = document.getElementById('batt-voltage');
+  const glowEl = document.getElementById('bat-glow');
+  const baseFillEl = document.getElementById('bat-base-fill');
+  const path1 = document.getElementById('bat-path-1');
+  const path2 = document.getElementById('bat-path-2');
+  const path3 = document.getElementById('bat-path-3');
+  const path4 = document.getElementById('bat-path-4');
+
   let battTarget = parseFloat(cell?.dataset.pct || '87');
   let battShown = battTarget;
+  let voltShown = 12.6;
 
-  function setBattery(pct) {
-    battTarget = Math.max(0, Math.min(100, pct));
-    cell.dataset.state = pct < 15 ? 'low' : pct < 35 ? 'warn' : 'ok';
-    const eta = Math.round((pct / 100) * 154); // 154 min full
-    const h = Math.floor(eta / 60), m = eta % 60;
-    etaEl.textContent = `${h}h ${String(m).padStart(2, '0')}m`;
+  const innerW = 32, innerH = 76;
+  const PERIOD = 36, AMP = 6;
+  const REPS = Math.ceil(innerW / PERIOD) + 5;
+
+  function makePath(yLevel, amp) {
+    let d = `M 0,${yLevel}`;
+    for (let i = 0; i < REPS; i++) {
+      const x = i * PERIOD;
+      d += ` Q ${x + PERIOD * 0.25},${yLevel - amp} ${x + PERIOD * 0.5},${yLevel}`;
+      d += ` Q ${x + PERIOD * 0.75},${yLevel + amp} ${x + PERIOD},${yLevel}`;
+    }
+    d += ` V ${innerH + 4} H 0 Z`;
+    return d;
   }
 
-  function updateWaves(pct) {
-    if (!waveBack || !waveFront) return;
-    // Base amplitude slightly increased (from ~2.0 to 3.2), then scaled by pct
-    const amp = 3.2 * (pct / 100);
-    // Back wave: was peak-up, now trough-down (baseline 5)
-    const dBack = `M-18 5 Q -9 ${5 + amp} 0 5 T 18 5 T 36 5 T 54 5 T 72 5 T 90 5 T 108 5 V25 H-18 Z`;
-    // Front wave: was trough-down, now peak-up (baseline 6)
-    const dFront = `M-18 6 Q -9 ${6 - amp} 0 6 T 18 6 T 36 6 T 54 6 T 72 6 T 90 6 T 108 6 V25 H-18 Z`;
-    waveBack.setAttribute('d', dBack);
-    waveFront.setAttribute('d', dFront);
+  function setBattery(pct, voltage) {
+    battTarget = Math.max(0, Math.min(100, pct));
+    if (voltage !== undefined) voltShown = voltage;
+    cell.dataset.state = pct <= 20 ? 'low' : pct < 50 ? 'warn' : 'ok';
+    if (pct <= 20) cell.classList.add('animate-pulse');
+    else cell.classList.remove('animate-pulse');
   }
 
   function tickBattery() {
     battShown += (battTarget - battShown) * 0.08;
-    const w = (battShown / 100 * 46).toFixed(2);
-    if (pctEl)  pctEl.textContent  = battShown.toFixed(0);
-    if (fillEl) fillEl.setAttribute('width', w);
-    if (fillClip) fillClip.setAttribute('width', w);
-    updateWaves(battShown);
+    if (pctEl) pctEl.textContent = battShown.toFixed(0);
+    if (voltEl) voltEl.textContent = `${voltShown.toFixed(1)}V`;
+
+    const pct = battShown;
+    const fillY = innerH * (1 - Math.max(0, Math.min(100, pct)) / 100);
+    const fillColor = pct > 50 ? "#22c55e" : pct > 20 ? "#eab308" : "#ef4444";
+
+    if (glowEl) glowEl.setAttribute('fill', fillColor);
+    if (baseFillEl) {
+      baseFillEl.setAttribute('fill', fillColor);
+      baseFillEl.setAttribute('y', 9 + fillY);
+      baseFillEl.setAttribute('height', innerH - fillY + 4);
+    }
+
+    if (path1) { path1.setAttribute('d', makePath(fillY, AMP * 0.35)); path1.setAttribute('fill', fillColor); }
+    if (path2) { path2.setAttribute('d', makePath(fillY, AMP * 0.60)); path2.setAttribute('fill', fillColor); }
+    if (path3) { path3.setAttribute('d', makePath(fillY, AMP * 0.82)); path3.setAttribute('fill', fillColor); }
+    if (path4) { path4.setAttribute('d', makePath(fillY, AMP));        path4.setAttribute('fill', fillColor); }
+
     requestAnimationFrame(tickBattery);
   }
   if (cell) {
-    setBattery(battTarget);
+    setBattery(battTarget, 12.6);
     tickBattery();
-    // expose to app.js
     window.__vnSetBattery = setBattery;
   }
 

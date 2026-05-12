@@ -385,8 +385,9 @@ function addLog(tag, msg) {
 let _lastNav = null;
 function updateStats(msg) {
     const pct = msg.battery_percentage;
+    const volt = msg.battery_voltage;
     if (typeof pct === 'number') {
-        if (window.__vnSetBattery) window.__vnSetBattery(pct);
+        if (window.__vnSetBattery) window.__vnSetBattery(pct, volt);
         if (driveBattery) driveBattery.textContent = `${pct.toFixed(0)}%`;
     }
 
