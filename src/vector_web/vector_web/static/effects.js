@@ -235,7 +235,6 @@
     const rangesDraw = new Float32Array(NRAYS); // smoothed for render
     const intensity = new Float32Array(NRAYS);
     let MAX_R = 6;               // Variable range (zoomable)
-    let sweepDeg = 0;            // rotating sensor head
     let scanFrames = 0;
     let _hasRealData = false;
     let lastScanTime = 0;
@@ -267,8 +266,7 @@
         ranges.fill(0);
       }
 
-      scanFrames++; // Always increment for HUD/animation timing
-      sweepDeg = (sweepDeg + 6) % 360;
+      scanFrames++;
 
       const W = lc.width, H = lc.height;
       const cx = W / 2, cy = H / 2;
@@ -297,40 +295,21 @@
       lctx.lineWidth = 2 * ldpr;
       lctx.beginPath(); lctx.moveTo(cx, cy); lctx.lineTo(cx, cy - radius); lctx.stroke();
 
-      // Sweep beam
-      const sweepRad = (sweepDeg * Math.PI) / 180;
-      const grad = lctx.createConicGradient(sweepRad - Math.PI / 2, cx, cy);
-      grad.addColorStop(0,    'rgba(250,183,183,0.0)');
-      grad.addColorStop(0.04, 'rgba(250,183,183,0.18)');
-      grad.addColorStop(0.10, 'rgba(250,183,183,0.0)');
-      grad.addColorStop(1,    'rgba(250,183,183,0.0)');
-      lctx.fillStyle = grad;
-      lctx.beginPath(); lctx.arc(cx, cy, radius, 0, Math.PI * 2); lctx.fill();
-
-      // Polygon hull (filled cone, soft)
-      lctx.beginPath();
-      let started = false;
+      // Smooth rendered ranges — snap on appearance so points don't animate from origin
       for (let i = 0; i < NRAYS; i++) {
-        // smooth rendered range
-        rangesDraw[i] += (ranges[i] - rangesDraw[i]) * 0.35;
-        const r = rangesDraw[i];
-        if (r <= 0) { started = false; continue; }
-        const a = (i / NRAYS) * Math.PI * 2 - Math.PI / 2; // 0deg = up
-        const x = cx + Math.cos(a) * r * pxPerM;
-        const y = cy + Math.sin(a) * r * pxPerM;
-        if (!started) { lctx.moveTo(x, y); started = true; }
-        else lctx.lineTo(x, y);
+        if (ranges[i] > 0 && rangesDraw[i] <= 0) {
+          rangesDraw[i] = ranges[i]; // instant appear
+        } else if (ranges[i] <= 0 && rangesDraw[i] > 0) {
+          rangesDraw[i] = 0;         // instant disappear
+        } else {
+          rangesDraw[i] += (ranges[i] - rangesDraw[i]) * 0.35;
+        }
       }
-      lctx.closePath();
-      lctx.fillStyle = 'rgba(250,183,183,0.04)';
-      lctx.fill();
-      lctx.strokeStyle = 'rgba(250,183,183,0.20)';
-      lctx.lineWidth = 1.2 * ldpr;
-      lctx.stroke();
 
       // Points
       let ptCount = 0, minR = Infinity, maxR = 0, obs = 0;
       let lastObsBin = -1;
+      const sz = 1 * ldpr;
       for (let i = 0; i < NRAYS; i++) {
         const r = rangesDraw[i];
         if (r <= 0) continue;
@@ -338,28 +317,18 @@
         const x = cx + Math.cos(a) * r * pxPerM;
         const y = cy + Math.sin(a) * r * pxPerM;
 
-        // Color by distance
         let col;
-        if (r < 1)      col = `rgba(255,91,80,${0.65 + intensity[i] * 0.35})`;
-        else if (r < 4) col = `rgba(250,183,183,${0.55 + intensity[i] * 0.4})`;
-        else            col = `rgba(255,255,255,${0.45 + intensity[i] * 0.4})`;
-
-        // Highlight currently swept ray
-        const sweepDelta = Math.abs(((i - sweepDeg) + NRAYS / 2 + NRAYS) % NRAYS - NRAYS / 2);
-        const sweepBoost = sweepDelta < 18 ? (1 - sweepDelta / 18) : 0;
-        const sz = (1.8 + 1.2 * sweepBoost) * ldpr; // Smaller points
+        if (r < 1)      col = `rgba(255,91,80,${0.70 + intensity[i] * 0.30})`;
+        else if (r < 4) col = `rgba(250,183,183,${0.60 + intensity[i] * 0.35})`;
+        else            col = `rgba(255,255,255,${0.50 + intensity[i] * 0.35})`;
 
         lctx.fillStyle = col;
         lctx.beginPath(); lctx.arc(x, y, sz, 0, Math.PI * 2); lctx.fill();
-        if (sweepBoost > 0.5) {
-          lctx.fillStyle = `rgba(255,255,255,${sweepBoost * 0.8})`;
-          lctx.beginPath(); lctx.arc(x, y, sz * 1.6, 0, Math.PI * 2); lctx.fill();
-        }
+
         ptCount++;
         if (r < minR) minR = r;
         if (r > maxR) maxR = r;
         if (r < 1.5) {
-          // count contiguous near clusters
           if (lastObsBin < 0 || (i - lastObsBin) > 6) obs++;
           lastObsBin = i;
         }

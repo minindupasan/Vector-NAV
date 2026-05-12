@@ -99,9 +99,7 @@
 
             <!-- System status pills -->
             <div class="sys-pills">
-                <div class="sys-pill"><svg class="ico"><use href="#i-radio"/></svg><span>ROS2 <em>humble</em></span><span class="sys-dot ok"></span></div>
-                <div class="sys-pill"><svg class="ico"><use href="#i-wifi"/></svg><span>UPLINK <em>52ms</em></span><span class="sys-dot ok"></span></div>
-                <div class="sys-pill clickable" id="pill-jetson"><svg class="ico"><use href="#i-cpu"/></svg><span>JETSON <em id="pill-jetson-val">--%</em></span><span class="sys-dot ok"></span></div>
+<div class="sys-pill clickable" id="pill-jetson"><svg class="ico"><use href="#i-cpu"/></svg><span>JETSON <em id="pill-jetson-val">--%</em></span><span class="sys-dot ok"></span></div>
                 <div class="sys-pill clickable" id="pill-pi"><svg class="ico"><use href="#i-chip"/></svg><span>PI 5 <em id="pill-pi-val">--%</em></span><span class="sys-dot ok"></span></div>
                 <div class="sys-pill"><svg class="ico"><use href="#i-layers"/></svg><span>LIDAR <em>10Hz</em></span><span class="sys-dot ok"></span></div>
             </div>
@@ -257,9 +255,6 @@
                         </div>
                         <div class="voice-controls-row">
                             <div class="mic-wrap">
-                                <span class="mic-ring r1"></span>
-                                <span class="mic-ring r2"></span>
-                                <span class="mic-ring r3"></span>
                                 <button class="mic-btn" id="micBtn" disabled>
                                     <svg class="ico-lg"><use href="#i-mic"/></svg>
                                 </button>
@@ -267,9 +262,6 @@
                             
                             <div class="spectrum-stage" id="spectrum-stage">
                                 <canvas id="spectrum-bars" class="spectrum-bars"></canvas>
-                                <div class="spectrum-rings" aria-hidden="true">
-                                    <span></span><span></span><span></span>
-                                </div>
                                 <div class="spectrum-readout">
                                     <span class="text-mono spectrum-time" id="spec-time">00:00</span>
                                     <span class="text-mono spectrum-level" id="spec-level">−∞ dB</span>
