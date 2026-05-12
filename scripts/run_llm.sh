@@ -1,5 +1,5 @@
 #!/bin/bash
-# run_llm.sh - Llama-3.2-3B via NanoLLM
+# run_llm.sh - Llama-3.2-1B via NanoLLM
 
 # --- Load token from .env.local ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -15,7 +15,7 @@ fi
 # ----------------------------------
 
 echo "----------------------------------------------------"
-echo "  VECTOR NAV — Llama-3.2-3B"
+echo "  VECTOR NAV — Llama-3.2-1B"
 echo "----------------------------------------------------"
 
 if [ -z "$HUGGINGFACE_TOKEN" ]; then
@@ -23,8 +23,8 @@ if [ -z "$HUGGINGFACE_TOKEN" ]; then
     exit 1
 fi
 
-# 1. Maximize Jetson Performance
-echo "[1/4] Setting Max Performance Mode (MAXN_SUPER) and Locking Clocks..."
+# 1. Set 15W Power Mode
+echo "[1/4] Setting 15W Power Mode and Locking Clocks..."
 sudo nvpmodel -m 0
 sudo jetson_clocks
 
@@ -32,7 +32,7 @@ sudo jetson_clocks
 echo "[2/4] Stopping old containers..."
 docker rm -f nano_llm_server 2>/dev/null || true
 
-# 3. Launch NanoLLM (Llama-3.2-3B)
+# 3. Launch NanoLLM (Llama-3.2-1B)
 echo "[3/4] Starting NanoLLM Server..."
 # We use --detach to avoid the "not a TTY" error in systemd.
 # The container will be cleaned up by ExecStopPost in the service.
@@ -43,10 +43,10 @@ echo "[3/4] Starting NanoLLM Server..."
   --env HUGGINGFACE_TOKEN=$HUGGINGFACE_TOKEN \
   -v "$SCRIPT_DIR/fix_tied_embeddings.py:/tmp/fix_tied_embeddings.py:ro" \
   dustynv/nano_llm:r36.4.0 \
-  bash -c "(huggingface-cli download meta-llama/Llama-3.2-3B-Instruct --local-dir-use-symlinks False || echo 'Warning: Hugging Face download failed, attempting to run with cached model...') && \
-    python3 /tmp/fix_tied_embeddings.py meta-llama/Llama-3.2-3B-Instruct && \
+  bash -c "(huggingface-cli download meta-llama/Llama-3.2-1B-Instruct --local-dir-use-symlinks False || echo 'Warning: Hugging Face download failed, attempting to run with cached model...') && \
+    python3 /tmp/fix_tied_embeddings.py meta-llama/Llama-3.2-1B-Instruct && \
     python3 -m nano_llm.agents.web_chat \
-      --model meta-llama/Llama-3.2-3B-Instruct \
+      --model meta-llama/Llama-3.2-1B-Instruct \
       --api mlc \
       --quantization q4f16_1 \
       --max-context-len 1024 \

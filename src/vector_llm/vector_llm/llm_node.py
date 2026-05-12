@@ -30,6 +30,7 @@ Parameters
 """
 
 import json
+import re
 import time
 import threading
 from pathlib import Path
@@ -118,7 +119,7 @@ class LLMNode(Node):
         self.get_logger().info(
             f'[T+0ms] Input: "{text}"  confidence={msg.confidence:.2f}  lang={msg.language or "?"}'
         )
-        context = self._get_context(text)
+        context = self._get_context(text) if _is_navigation_query(text) else ''
         t_rag = time.monotonic()
         self.get_logger().info(f'[T+{(t_rag-t0)*1000:.0f}ms] RAG context retrieved')
         self._run_llm(text, context, t0)
@@ -214,6 +215,18 @@ class LLMNode(Node):
             out.name           = result['name']
             out.arguments_json = json.dumps(result['arguments'])
             self.get_logger().info(f'Tool call: {out.name}  args={out.arguments_json}')
+
+            # Announce before executing
+            args = result['arguments']
+            if 'location' in args:
+                announcement = f"Now navigating to {args['location']}."
+            elif out.name in ('stop_navigation', 'stop'):
+                announcement = "Stopping navigation."
+            else:
+                announcement = f"Executing {out.name.replace('_', ' ')}."
+            self._tts_pub.publish(String(data=announcement))
+            self._tts_pub.publish(String(data='[end]'))
+
             self._tool_call_pub.publish(out)
         else:
             self.get_logger().info(f'[T+{(time.monotonic()-t0)*1000:.0f}ms] Complete ({chunk_count} chunks)')
@@ -226,6 +239,17 @@ class LLMNode(Node):
             return tools
         self.get_logger().warn('tools.json not found — running without function calling')
         return []
+
+
+_NAV_KEYWORDS = re.compile(
+    r'\b(go|navigate|move|drive|take me|bring|head|dock|undock|stop|halt|return|'
+    r'deliver|fetch|where is|location|find|route|path)\b',
+    re.IGNORECASE,
+)
+
+def _is_navigation_query(text: str) -> bool:
+    """Return True only if the input likely involves navigation or location lookup."""
+    return bool(_NAV_KEYWORDS.search(text))
 
 
 def _find_config(filename: str) -> Path | None:
