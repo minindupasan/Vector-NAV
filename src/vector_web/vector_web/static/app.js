@@ -254,6 +254,8 @@ function connectBridge() {
         if (msg.type === 'stats') updateStats(msg);
         else if (msg.type === 'scan') {
             if (window.__vnLidar) window.__vnLidar.push(msg.ranges);
+        } else if (msg.type === 'slam_map') {
+            if (window.__vnMap) window.__vnMap.update(msg);
         }
     };
 }
@@ -861,6 +863,176 @@ setInterval(pingRTT, 3000);
 // Initial seed log
 addLog('SYS', 'Console online');
 
+// ── Mode Manager ─────────────────────────────────────────────────────────────
+
+let _currentMode = 'nav';
+let _modeSwitching = false;
+let _selectedMap = 'custom_map';
+
+const _modeBtnNav    = document.getElementById('mode-btn-nav');
+const _modeBtnSlam   = document.getElementById('mode-btn-slam');
+const _mapCarouselWrap = document.getElementById('map-carousel-wrap');
+const _mapCarousel   = document.getElementById('map-carousel');
+const _carouselPrev  = document.getElementById('carousel-prev');
+const _carouselNext  = document.getElementById('carousel-next');
+const _slamControls  = document.getElementById('slam-controls');
+const _slamMapName   = document.getElementById('slam-map-name');
+const _saveMapBtn    = document.getElementById('save-map-btn');
+const _loadMapBtn    = document.getElementById('load-map-btn');
+const _modeSwitchEl  = document.getElementById('mode-switching');
+const _mapModeBadge  = document.getElementById('map-mode-badge');
+const _mapTabBadge   = document.getElementById('map-tab-badge');
+
+function renderMapCarousel(maps) {
+    if (!_mapCarousel || !maps || !maps.length) return;
+    _mapCarousel.innerHTML = '';
+    maps.forEach(m => {
+        const name = m.name || m;
+        const card = document.createElement('div');
+        card.className = 'map-card' + (name === _selectedMap ? ' active' : '');
+        card.dataset.map = name;
+        card.innerHTML = `<img class="map-card-img" src="${apiBase}/api/maps/${encodeURIComponent(name)}/image" loading="lazy" alt="${name}"><span class="map-card-name">${name}</span>`;
+        card.addEventListener('click', () => selectMap(name));
+        _mapCarousel.appendChild(card);
+    });
+    updateCarouselArrows();
+}
+
+function selectMap(name) {
+    _selectedMap = name;
+    _mapCarousel?.querySelectorAll('.map-card').forEach(c => {
+        c.classList.toggle('active', c.dataset.map === name);
+    });
+}
+
+function updateCarouselArrows() {
+    if (!_mapCarousel || !_carouselPrev || !_carouselNext) return;
+    _carouselPrev.disabled = _mapCarousel.scrollLeft <= 0;
+    _carouselNext.disabled = _mapCarousel.scrollLeft + _mapCarousel.clientWidth >= _mapCarousel.scrollWidth - 2;
+}
+
+_carouselPrev?.addEventListener('click', () => {
+    _mapCarousel?.scrollBy({ left: -100, behavior: 'smooth' });
+});
+_carouselNext?.addEventListener('click', () => {
+    _mapCarousel?.scrollBy({ left: 100, behavior: 'smooth' });
+});
+_mapCarousel?.addEventListener('scroll', updateCarouselArrows);
+
+function applyModeUI(mode, maps) {
+    _currentMode = mode;
+    _modeBtnNav?.classList.toggle('active', mode === 'nav');
+    _modeBtnSlam?.classList.toggle('active', mode === 'slam');
+    if (_mapCarouselWrap) _mapCarouselWrap.hidden = (mode !== 'nav');
+    if (_slamControls) _slamControls.hidden = (mode !== 'slam');
+    if (_mapModeBadge) _mapModeBadge.textContent = mode.toUpperCase();
+    if (_mapTabBadge) _mapTabBadge.textContent = mode === 'slam' ? 'SLAM · MAPPING' : 'NAV · ACTIVE';
+    if (maps) renderMapCarousel(maps);
+}
+
+function setModeSwitching(on) {
+    _modeSwitching = on;
+    if (_modeSwitchEl) _modeSwitchEl.hidden = !on;
+    if (_modeBtnNav)  _modeBtnNav.disabled  = on;
+    if (_modeBtnSlam) _modeBtnSlam.disabled  = on;
+}
+
+async function switchMode(mode) {
+    if (_modeSwitching || mode === _currentMode) return;
+    setModeSwitching(true);
+    addLog('SYS', `Switching to ${mode.toUpperCase()}…`);
+    if (window.__vnMap) window.__vnMap.clear();
+    const body = { mode };
+    if (mode === 'nav' && _selectedMap) body.map = _selectedMap;
+    try {
+        const res = await fetch(`${apiBase}/api/mode`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        }).then(r => r.json());
+        if (res.success) {
+            applyModeUI(res.mode, null);
+            showToast(`Switched to ${res.mode.toUpperCase()} mode`, true);
+            addLog('OK', `Mode: ${res.mode.toUpperCase()}`);
+        } else {
+            showToast(res.error || 'Mode switch failed', false);
+        }
+    } catch (e) {
+        showToast('Mode switch error', false);
+    } finally {
+        setModeSwitching(false);
+    }
+}
+
+async function loadMap() {
+    if (!_selectedMap) { showToast('Select a map first', false); return; }
+    if (_modeSwitching) return;
+    setModeSwitching(true);
+    addLog('SYS', `Loading map: ${_selectedMap}…`);
+    if (window.__vnMap) window.__vnMap.clear();
+    try {
+        const res = await fetch(`${apiBase}/api/mode`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: 'nav', map: _selectedMap }),
+        }).then(r => r.json());
+        if (res.success) {
+            applyModeUI(res.mode, null);
+            showToast(`Map loaded: ${_selectedMap}`, true);
+            addLog('OK', `Map loaded: ${_selectedMap}`);
+        } else {
+            showToast(res.error || 'Load failed', false);
+        }
+    } catch (e) {
+        showToast('Load map error', false);
+    } finally {
+        setModeSwitching(false);
+    }
+}
+
+_loadMapBtn?.addEventListener('click', loadMap);
+
+async function saveMap() {
+    const name = (_slamMapName?.value || '').trim();
+    if (!name) { showToast('Enter a map name', false); return; }
+    if (!/^[a-zA-Z0-9_-]+$/.test(name)) { showToast('Name: letters, digits, _ - only', false); return; }
+    if (_saveMapBtn) _saveMapBtn.disabled = true;
+    addLog('SYS', `Saving map '${name}'…`);
+    try {
+        const res = await fetch(`${apiBase}/api/maps/save`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name }),
+        }).then(r => r.json());
+        if (res.success) {
+            showToast(`Map '${name}' saved`, true);
+            addLog('OK', `Map saved: ${name}`);
+            if (_slamMapName) _slamMapName.value = '';
+            fetchMapsAndMode();
+        } else {
+            showToast(res.error || 'Save failed', false);
+        }
+    } catch (e) {
+        showToast('Map save error', false);
+    } finally {
+        if (_saveMapBtn) _saveMapBtn.disabled = false;
+    }
+}
+
+async function fetchMapsAndMode() {
+    try {
+        const res = await fetch(`${apiBase}/api/mode`).then(r => r.json());
+        if (res.map) _selectedMap = res.map;
+        applyModeUI(res.mode, res.maps.map(n => ({ name: n })));
+    } catch (e) { /* silent */ }
+}
+
+_modeBtnNav?.addEventListener('click', () => switchMode('nav'));
+_modeBtnSlam?.addEventListener('click', () => switchMode('slam'));
+_saveMapBtn?.addEventListener('click', saveMap);
+_slamMapName?.addEventListener('keydown', e => { if (e.key === 'Enter') saveMap(); });
+
 // ── Init ─────────────────────────────────────────────────────────────────────
 connectVoice();
 connectBridge();
+fetchMapsAndMode();

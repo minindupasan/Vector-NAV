@@ -38,6 +38,8 @@
         <symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
         <symbol id="i-activity" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.5.5 0 0 1-.96 0L9.24 2.18a.5.5 0 0 0-.96 0l-2.35 8.36A2 2 0 0 1 4 12H2"/></symbol>
         <symbol id="i-route" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></symbol>
+        <symbol id="i-map" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" x2="9" y1="3" y2="18"/><line x1="15" x2="15" y1="6" y2="21"/></symbol>
+        <symbol id="i-save" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></symbol>
         <symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></symbol>
       </defs>
     </svg>
@@ -302,9 +304,9 @@
                         </div>
                         <div class="card-meta">
                             <span class="badge badge-soft tab-meta" data-tab="scan">RPLIDAR A1M8 · 5.5Hz</span>
-                            <span class="badge badge-soft tab-meta" data-tab="map" hidden>SLAM · LOCKED</span>
+                            <span class="badge badge-soft tab-meta" data-tab="map" id="map-tab-badge" hidden>NAV · ACTIVE</span>
                             <span class="text-muted text-mono tab-meta" data-tab="scan"><span id="scan-pts">0</span> pts · 12m</span>
-                            <span class="text-muted text-mono tab-meta" data-tab="map" hidden>Lab Floor 2</span>
+                            <span class="text-muted text-mono tab-meta" data-tab="map" id="map-tab-meta" hidden></span>
                         </div>
                     </div>
 
@@ -332,54 +334,48 @@
 
                     <!-- TAB 2: LIVE MAP -->
                     <div class="tab-pane map-stage" data-pane="map">
-                        <svg viewBox="0 0 600 380" class="map-svg" preserveAspectRatio="xMidYMid meet">
-                            <defs>
-                                <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
-                                    <path d="M 24 0 L 0 0 0 24" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>
-                                </pattern>
-                                <radialGradient id="bot-glow" cx="50%" cy="50%" r="50%">
-                                    <stop offset="0%" stop-color="#fab7b7" stop-opacity="0.6"/>
-                                    <stop offset="100%" stop-color="#fab7b7" stop-opacity="0"/>
-                                </radialGradient>
-                            </defs>
-                            <rect width="600" height="380" fill="url(#grid)"/>
-                            <!-- room outlines -->
-                            <path d="M 40 60 L 280 60 L 280 180 L 380 180 L 380 60 L 560 60 L 560 320 L 40 320 Z" fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="1.5"/>
-                            <path d="M 200 60 L 200 180 M 280 180 L 280 320 M 380 220 L 560 220 M 380 260 L 460 260 L 460 320" fill="none" stroke="rgba(255,255,255,0.10)" stroke-width="1"/>
-                            <!-- planned route -->
-                            <path id="route-path" d="M 120 280 Q 200 240 260 200 T 420 140" fill="none" stroke="#fab7b7" stroke-width="2" stroke-dasharray="4 6" opacity="0.85"/>
-                            <!-- waypoints -->
-                            <g class="waypoint">
-                                <circle cx="120" cy="280" r="6" fill="#ffffff"/>
-                                <text x="132" y="283" class="map-label">Dock</text>
-                            </g>
-                            <g class="waypoint">
-                                <circle cx="420" cy="140" r="6" fill="none" stroke="#ffffff" stroke-width="1.5"/>
-                                <text x="432" y="143" class="map-label">Kitchen</text>
-                            </g>
-                            <g class="waypoint">
-                                <circle cx="490" cy="280" r="4" fill="rgba(255,255,255,0.4)"/>
-                                <text x="500" y="283" class="map-label dim">Lab Bench</text>
-                            </g>
-                            <g class="waypoint">
-                                <circle cx="180" cy="120" r="4" fill="rgba(255,255,255,0.4)"/>
-                                <text x="190" y="123" class="map-label dim">Reception</text>
-                            </g>
-                            <!-- bot -->
-                            <g id="bot-marker" transform="translate(260,200)">
-                                <circle r="34" fill="url(#bot-glow)"/>
-                                <circle r="10" fill="#fab7b7"/>
-                                <circle r="10" fill="none" stroke="#ffffff" stroke-width="1.5"/>
-                                <line x1="0" y1="0" x2="14" y2="-6" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
-                            </g>
-                            <!-- lidar fan -->
-                            <path d="M 260 200 L 360 156 A 110 110 0 0 0 360 244 Z" fill="rgba(250,183,183,0.08)" stroke="rgba(250,183,183,0.25)" stroke-width="1"/>
-                        </svg>
+                        <!-- Mode control bar -->
+                        <div class="map-mode-bar">
+                            <div class="map-mode-toggle">
+                                <button class="seg-btn mode-btn active" id="mode-btn-nav" data-mode="nav">
+                                    <svg class="ico"><use href="#i-route"/></svg><span>NAV</span>
+                                </button>
+                                <button class="seg-btn mode-btn" id="mode-btn-slam" data-mode="slam">
+                                    <svg class="ico"><use href="#i-map"/></svg><span>SLAM</span>
+                                </button>
+                            </div>
+                            <div class="map-carousel-wrap" id="map-carousel-wrap">
+                                <button class="carousel-arrow" id="carousel-prev" aria-label="Previous map">&#8249;</button>
+                                <div class="map-carousel" id="map-carousel"></div>
+                                <button class="carousel-arrow" id="carousel-next" aria-label="Next map">&#8250;</button>
+                                <button id="load-map-btn" class="btn btn-load-map btn-sm">
+                                    <svg class="ico"><use href="#i-map"/></svg><span>LOAD</span>
+                                </button>
+                            </div>
+                            <div class="slam-controls" id="slam-controls" hidden>
+                                <input type="text" id="slam-map-name" class="slam-name-input" placeholder="map name…" autocomplete="off">
+                                <button id="save-map-btn" class="btn btn-secondary btn-sm">
+                                    <svg class="ico"><use href="#i-save"/></svg><span>SAVE MAP</span>
+                                </button>
+                            </div>
+                            <div class="mode-switching" id="mode-switching" hidden>
+                                <span class="mode-spinner"></span>
+                                <span class="text-muted text-mono">Switching…</span>
+                            </div>
+                        </div>
+                        <!-- Map canvas -->
+                        <div class="map-canvas-wrap">
+                            <canvas id="map-canvas" class="map-canvas"></canvas>
+                            <div class="map-no-data" id="map-no-data">
+                                <svg class="ico" style="width:28px;height:28px"><use href="#i-map"/></svg>
+                                <span style="font-size:var(--vn-fs-small);color:var(--vn-fg-muted)">Waiting for map data…</span>
+                            </div>
+                        </div>
                         <div class="map-overlay">
-                            <div class="map-stat"><span class="text-muted">HEADING</span><span class="text-mono">042.3°</span></div>
-                            <div class="map-stat"><span class="text-muted">VEL</span><span class="text-mono">1.20 m/s</span></div>
-                            <div class="map-stat"><span class="text-muted">DIST</span><span class="text-mono">4.2 m</span></div>
-                            <div class="map-stat"><span class="text-muted">ETA</span><span class="text-mono">00:12</span></div>
+                            <div class="map-stat"><span class="text-muted">MODE</span><span class="text-mono" id="map-mode-badge">NAV</span></div>
+                            <div class="map-stat"><span class="text-muted">HEADING</span><span class="text-mono" id="map-heading">---°</span></div>
+                            <div class="map-stat"><span class="text-muted">POSE</span><span class="text-mono" id="map-pose">--,--</span></div>
+                            <div class="map-stat"><span class="text-muted">RES</span><span class="text-mono" id="map-res">--cm</span></div>
                         </div>
                     </div>
                 </div>
