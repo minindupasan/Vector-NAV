@@ -238,15 +238,34 @@ function connectVoice() {
     voiceWs.onmessage = handleVoiceMessage;
 }
 
+// ── Map polling — requests latest map from server until one arrives ───────────
+let _mapPollTimer = null;
+
+function startMapPoll() {
+    stopMapPoll();
+    let attempts = 0;
+    _mapPollTimer = setInterval(() => {
+        if (++attempts > 15) { stopMapPoll(); return; }
+        if (bridgeWs && bridgeWs.readyState === WebSocket.OPEN)
+            bridgeWs.send(JSON.stringify({ type: 'get_map' }));
+    }, 3000);
+}
+
+function stopMapPoll() {
+    if (_mapPollTimer) { clearInterval(_mapPollTimer); _mapPollTimer = null; }
+}
+
 function connectBridge() {
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     bridgeWs = new WebSocket(`${protocol}//${location.hostname}:${APP_PORT}/ws/control`);
     bridgeWs.onopen = () => {
         console.log('Control Bridge connected');
         fetchLocations();
+        startMapPoll();
     };
     bridgeWs.onclose = () => {
         console.log('Control Bridge disconnected');
+        stopMapPoll();
         setTimeout(connectBridge, 2000);
     };
     bridgeWs.onmessage = (evt) => {
@@ -423,7 +442,10 @@ function updateStats(msg) {
         if (poseY)  poseY.textContent  = (p.y >= 0 ? '+' : '') + p.y.toFixed(3);
         if (poseTh) poseTh.textContent = `${yawDeg.toFixed(1)}°`;
         if (statHead) statHead.textContent = yawNorm.toFixed(1);
-        if (headNeedle) headNeedle.style.transform = `rotate(${yawNorm}deg)`;
+        // 0° heading = North (up). CSS rotate is clockwise so the needle
+        // wrapper rotates directly by yaw. The translate(-50%,-50%) keeps
+        // the pivot at the compass centre.
+        if (headNeedle) headNeedle.style.transform = `translate(-50%, -50%) rotate(${yawNorm}deg)`;
     }
 
     // Pi Metrics
@@ -584,8 +606,12 @@ let linearManager = null;
 let angularManager = null;
 
 function joystickGeom(zone) {
-    const r = zone.getBoundingClientRect();
-    const w = r.width || 200, h = r.height || 200;
+    // Use offsetWidth/Height — these are layout-only and ignore any CSS
+    // transform (scale/rotate) applied by the entry animation. Using
+    // getBoundingClientRect() here returns the *visually* transformed size
+    // and produces an off-center handle.
+    const w = zone.offsetWidth  || 200;
+    const h = zone.offsetHeight || 200;
     return {
         size: Math.max(120, Math.min(240, Math.round(Math.min(w, h) * 0.78))),
         cx: `${Math.round(w / 2)}px`,
@@ -610,8 +636,8 @@ function initJoysticks() {
         position: { left: lg.cx, top: lg.cy },
         color: '#ffffff',
         size: lg.size,
-        threshold: 0.1,
-        lockY: true
+        threshold: 0.1
+        // No lockY: handle rotates 360°. Velocity below uses vector.y only.
     });
 
     linearManager.on('move', (evt, data) => {
@@ -633,8 +659,8 @@ function initJoysticks() {
         position: { left: ag.cx, top: ag.cy },
         color: '#ffffff',
         size: ag.size,
-        threshold: 0.1,
-        lockX: true
+        threshold: 0.1
+        // No lockX: handle rotates 360°. Velocity below uses vector.x only.
     });
 
     angularManager.on('move', (evt, data) => {
@@ -683,7 +709,9 @@ window.addEventListener('orientationchange', reinitJoysticksDeferred);
 
 enterDriveBtn.onclick = () => {
     driveOverlay.classList.add('active');
-    setTimeout(initJoysticks, 220);
+    // Wait for joystick entry animation (460ms delay + 340ms = ~800ms) so
+    // nipplejs reads the final layout, not a mid-animation transformed one.
+    setTimeout(initJoysticks, 820);
 };
 
 closeDriveBtn.onclick = () => {
@@ -863,6 +891,129 @@ setInterval(pingRTT, 3000);
 // Initial seed log
 addLog('SYS', 'Console online');
 
+// ── Live Map Renderer ─────────────────────────────────────────────────────────
+(function () {
+    const canvas  = document.getElementById('map-canvas');
+    const noData  = document.getElementById('map-no-data');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    let _img = null;
+    let _meta = null;
+    let _retryTimer = null;
+
+    function getSize() {
+        let el = canvas.parentElement;
+        while (el) {
+            if (el.clientWidth > 0 && el.clientHeight > 0) return [el.clientWidth, el.clientHeight];
+            el = el.parentElement;
+        }
+        return [0, 0];
+    }
+
+    function resize() {
+        const [w, h] = getSize();
+        if (w === 0 || h === 0) return;
+        canvas.width  = w;
+        canvas.height = h;
+        // Re-apply smoothing after resize (canvas reset clears context state)
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        if (_img) draw();
+    }
+
+    function draw() {
+        if (!_img || !_meta) return;
+        const [w, h] = getSize();
+        if (w === 0 || h === 0) return;
+        if (canvas.width !== w || canvas.height !== h) {
+            canvas.width = w; canvas.height = h;
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+        }
+        const { width: mw, height: mh, resolution, origin_x, origin_y, robot_x, robot_y, robot_yaw } = _meta;
+        const cw = canvas.width, ch = canvas.height;
+
+        const scale = Math.min(cw / mw, ch / mh);
+        const dx = (cw - mw * scale) / 2;
+        const dy = (ch - mh * scale) / 2;
+
+        // Dark background for unknown/empty areas outside map bounds
+        ctx.fillStyle = '#10121a';
+        ctx.fillRect(0, 0, cw, ch);
+        ctx.drawImage(_img, dx, dy, mw * scale, mh * scale);
+
+        // Robot marker — fixed pixel size so it's always visible
+        if (resolution > 0) {
+            // image is 2× upscaled: each image pixel = resolution/2 metres
+            const pxPerMetre = 2 / resolution;
+            const px = dx + (robot_x - origin_x) * pxPerMetre * scale;
+            const py = dy + (mh - (robot_y - origin_y) * pxPerMetre) * scale;
+
+            // Direction arrow (fixed 12px)
+            ctx.save();
+            ctx.translate(px, py);
+            ctx.rotate(-robot_yaw);
+            ctx.beginPath();
+            ctx.moveTo(0, -12);
+            ctx.lineTo(6, 6);
+            ctx.lineTo(-6, 6);
+            ctx.closePath();
+            ctx.fillStyle = '#00e5ff';
+            ctx.shadowColor = '#00e5ff';
+            ctx.shadowBlur = 6;
+            ctx.fill();
+            ctx.restore();
+
+            // Centre dot
+            ctx.beginPath();
+            ctx.arc(px, py, 5, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowColor = '#00e5ff';
+            ctx.shadowBlur = 8;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+    }
+
+    window.__vnMap = {
+        update(msg) {
+            if (noData) noData.hidden = true;
+            _meta = msg;
+            stopMapPoll();
+            const image = new Image();
+            image.onload = () => {
+                _img = image;
+                draw();
+                if (_retryTimer) clearInterval(_retryTimer);
+                const [w] = getSize();
+                if (w === 0) {
+                    _retryTimer = setInterval(() => {
+                        const [w2] = getSize();
+                        if (w2 > 0) { clearInterval(_retryTimer); _retryTimer = null; resize(); draw(); }
+                    }, 200);
+                }
+            };
+            image.src = 'data:image/png;base64,' + msg.img;
+        },
+        clear() {
+            _img = null; _meta = null;
+            if (_retryTimer) { clearInterval(_retryTimer); _retryTimer = null; }
+            ctx.fillStyle = '#10121a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            if (noData) noData.hidden = false;
+        }
+    };
+
+    new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting && _img) { resize(); draw(); }
+    }, { threshold: 0.1 }).observe(canvas);
+
+    new ResizeObserver(resize).observe(canvas.parentElement);
+    resize();
+})();
+
 // ── Mode Manager ─────────────────────────────────────────────────────────────
 
 let _currentMode = 'nav';
@@ -919,7 +1070,7 @@ _carouselNext?.addEventListener('click', () => {
 });
 _mapCarousel?.addEventListener('scroll', updateCarouselArrows);
 
-function applyModeUI(mode, maps) {
+function applyModeUI(mode, maps, activeMap) {
     _currentMode = mode;
     _modeBtnNav?.classList.toggle('active', mode === 'nav');
     _modeBtnSlam?.classList.toggle('active', mode === 'slam');
@@ -928,6 +1079,8 @@ function applyModeUI(mode, maps) {
     if (_mapModeBadge) _mapModeBadge.textContent = mode.toUpperCase();
     if (_mapTabBadge) _mapTabBadge.textContent = mode === 'slam' ? 'SLAM · MAPPING' : 'NAV · ACTIVE';
     if (maps) renderMapCarousel(maps);
+    const nameEl = document.getElementById('current-map-name');
+    if (nameEl) nameEl.textContent = activeMap || _selectedMap || 'no map';
 }
 
 function setModeSwitching(on) {
@@ -951,9 +1104,10 @@ async function switchMode(mode) {
             body: JSON.stringify(body),
         }).then(r => r.json());
         if (res.success) {
-            applyModeUI(res.mode, null);
+            applyModeUI(res.mode, null, res.map || null);
             showToast(`Switched to ${res.mode.toUpperCase()} mode`, true);
             addLog('OK', `Mode: ${res.mode.toUpperCase()}`);
+            startMapPoll();
         } else {
             showToast(res.error || 'Mode switch failed', false);
         }
@@ -977,9 +1131,10 @@ async function loadMap() {
             body: JSON.stringify({ mode: 'nav', map: _selectedMap }),
         }).then(r => r.json());
         if (res.success) {
-            applyModeUI(res.mode, null);
-            showToast(`Map loaded: ${_selectedMap}`, true);
-            addLog('OK', `Map loaded: ${_selectedMap}`);
+            applyModeUI(res.mode, null, res.map || _selectedMap);
+            showToast(`Map loaded: ${res.map || _selectedMap}`, true);
+            addLog('OK', `Map loaded: ${res.map || _selectedMap}`);
+            startMapPoll();
         } else {
             showToast(res.error || 'Load failed', false);
         }
@@ -1023,7 +1178,7 @@ async function fetchMapsAndMode() {
     try {
         const res = await fetch(`${apiBase}/api/mode`).then(r => r.json());
         if (res.map) _selectedMap = res.map;
-        applyModeUI(res.mode, res.maps.map(n => ({ name: n })));
+        applyModeUI(res.mode, res.maps.map(n => ({ name: n })), res.map);
     } catch (e) { /* silent */ }
 }
 
@@ -1031,6 +1186,14 @@ _modeBtnNav?.addEventListener('click', () => switchMode('nav'));
 _modeBtnSlam?.addEventListener('click', () => switchMode('slam'));
 _saveMapBtn?.addEventListener('click', saveMap);
 _slamMapName?.addEventListener('keydown', e => { if (e.key === 'Enter') saveMap(); });
+
+document.getElementById('map-refresh-btn')?.addEventListener('click', () => {
+    const ico = document.getElementById('map-refresh-ico');
+    if (ico) { ico.style.transition = 'transform 0.6s'; ico.style.transform = 'rotate(360deg)'; setTimeout(() => { ico.style.transition = ''; ico.style.transform = ''; }, 650); }
+    if (bridgeWs && bridgeWs.readyState === WebSocket.OPEN) {
+        bridgeWs.send(JSON.stringify({ type: 'get_map' }));
+    }
+});
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 connectVoice();

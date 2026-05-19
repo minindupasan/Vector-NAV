@@ -146,7 +146,7 @@ def generate_launch_description():
         parameters=[{'use_sim_time': use_sim_time}],
     )
 
-    default_map = os.path.join(os.path.expanduser('~'), 'vector_nav', 'maps', 'home.yaml')
+    default_map = os.path.join(os.path.expanduser('~'), 'vector_nav', 'maps', 'custom_map.yaml')
 
     return LaunchDescription([
         DeclareLaunchArgument('use_sim_time', default_value='false'),

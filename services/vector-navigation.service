@@ -1,0 +1,27 @@
+[Unit]
+Description=Vector Nav — Navigation Stack (Nav2 + NavManager)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=admin
+Group=admin
+WorkingDirectory=/home/admin/vector_nav
+Environment=HOME=/home/admin
+Environment=PATH=/home/admin/.local/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=-/home/admin/vector_nav/.env.local
+
+ExecStart=/home/admin/vector_nav/scripts/run_navigation.sh
+
+TimeoutStartSec=60
+TimeoutStopSec=15
+Restart=on-failure
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vector-navigation
+
+[Install]
+WantedBy=multi-user.target

@@ -6,18 +6,16 @@
  * - Mic ring activation (.live class on .mic-wrap and .spectrum-stage)
  */
 (() => {
-  // ── Battery ───────────────────────────────────────────────
-  const cell = document.getElementById('battery-cell');
-  const pctEl = document.getElementById('batt-pct');
-  const voltEl = document.getElementById('batt-voltage');
-  const glowEl = document.getElementById('bat-glow');
-  const baseFillEl = document.getElementById('bat-base-fill');
-  const path1 = document.getElementById('bat-path-1');
-  const path2 = document.getElementById('bat-path-2');
-  const path3 = document.getElementById('bat-path-3');
-  const path4 = document.getElementById('bat-path-4');
+  // ── Battery (supports N instances — topbar + HUD) ─────────
+  // Each instance is a `.batt-cell` with `.batt-pct` (text), optional `.batt-volt`,
+  // and SVG sub-parts marked by data-batt-glow / data-batt-base-fill / data-batt-path.
+  const cells = Array.from(document.querySelectorAll('.batt-cell'));
+  // Back-compat: the original topbar also has id="battery-cell" without the new class.
+  const legacy = document.getElementById('battery-cell');
+  if (legacy && !cells.includes(legacy)) cells.push(legacy);
 
-  let battTarget = parseFloat(cell?.dataset.pct || '87');
+  let battTarget = 87;
+  if (legacy?.dataset.pct) battTarget = parseFloat(legacy.dataset.pct) || 87;
   let battShown = battTarget;
   let voltShown = 12.6;
 
@@ -39,35 +37,42 @@
   function setBattery(pct, voltage) {
     battTarget = Math.max(0, Math.min(100, pct));
     if (voltage !== undefined) voltShown = voltage;
-    cell.dataset.state = pct <= 20 ? 'low' : pct < 50 ? 'warn' : 'ok';
-    if (pct <= 20) cell.classList.add('animate-pulse');
-    else cell.classList.remove('animate-pulse');
+    const state = pct <= 20 ? 'low' : pct < 50 ? 'warn' : 'ok';
+    cells.forEach(c => {
+      c.dataset.state = state;
+      c.classList.toggle('animate-pulse', pct <= 20);
+    });
   }
 
   function tickBattery() {
     battShown += (battTarget - battShown) * 0.08;
-    if (pctEl) pctEl.textContent = battShown.toFixed(0);
-    if (voltEl) voltEl.textContent = `${voltShown.toFixed(1)}V`;
+    document.querySelectorAll('.batt-pct').forEach(el => { el.textContent = battShown.toFixed(0); });
+    document.querySelectorAll('.batt-volt').forEach(el => { el.textContent = `${voltShown.toFixed(1)}V`; });
 
     const pct = battShown;
     const fillY = innerH * (1 - Math.max(0, Math.min(100, pct)) / 100);
     const fillColor = pct > 50 ? "#22c55e" : pct > 20 ? "#eab308" : "#ef4444";
+    const d1 = makePath(fillY, AMP * 0.35);
+    const d2 = makePath(fillY, AMP * 0.60);
+    const d3 = makePath(fillY, AMP * 0.82);
+    const d4 = makePath(fillY, AMP);
 
-    if (glowEl) glowEl.setAttribute('fill', fillColor);
-    if (baseFillEl) {
-      baseFillEl.setAttribute('fill', fillColor);
-      baseFillEl.setAttribute('y', 9 + fillY);
-      baseFillEl.setAttribute('height', innerH - fillY + 4);
-    }
-
-    if (path1) { path1.setAttribute('d', makePath(fillY, AMP * 0.35)); path1.setAttribute('fill', fillColor); }
-    if (path2) { path2.setAttribute('d', makePath(fillY, AMP * 0.60)); path2.setAttribute('fill', fillColor); }
-    if (path3) { path3.setAttribute('d', makePath(fillY, AMP * 0.82)); path3.setAttribute('fill', fillColor); }
-    if (path4) { path4.setAttribute('d', makePath(fillY, AMP));        path4.setAttribute('fill', fillColor); }
+    cells.forEach(cell => {
+      cell.querySelectorAll('[data-batt-glow]').forEach(el => el.setAttribute('fill', fillColor));
+      cell.querySelectorAll('[data-batt-base-fill]').forEach(el => {
+        el.setAttribute('fill', fillColor);
+        el.setAttribute('y', 9 + fillY);
+        el.setAttribute('height', innerH - fillY + 4);
+      });
+      const setPath = (idx, d) => cell.querySelectorAll(`[data-batt-path="${idx}"]`).forEach(el => {
+        el.setAttribute('d', d); el.setAttribute('fill', fillColor);
+      });
+      setPath(1, d1); setPath(2, d2); setPath(3, d3); setPath(4, d4);
+    });
 
     requestAnimationFrame(tickBattery);
   }
-  if (cell) {
+  if (cells.length) {
     setBattery(battTarget, 12.6);
     tickBattery();
     window.__vnSetBattery = setBattery;
@@ -186,7 +191,14 @@
   }
 
   function roundRect(ctx, x, y, w, h, r) {
+    if (w <= 0 || h <= 0) return;
+    r = Math.max(0, Math.min(r, Math.min(w, h) / 2));
     ctx.beginPath();
+    if (r <= 0) {
+      ctx.rect(x, y, w, h);
+      ctx.closePath();
+      return;
+    }
     ctx.moveTo(x + r, y);
     ctx.arcTo(x + w, y,     x + w, y + h, r);
     ctx.arcTo(x + w, y + h, x,     y + h, r);
@@ -224,6 +236,55 @@
     document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.dataset.pane === id));
     document.querySelectorAll('.tab-meta').forEach(m => m.hidden = m.dataset.tab !== id);
   }));
+
+  // ── Map popover (Saved Maps / SLAM save controls) ────────
+  const popTrigger = document.getElementById('map-pop-trigger');
+  const popover    = document.getElementById('map-popover');
+  const popLabel   = document.getElementById('current-map-name');
+
+  function setPopOpen(open) {
+    if (!popover || !popTrigger) return;
+    popover.hidden = !open;
+    popTrigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+  popTrigger?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setPopOpen(popover.hidden);
+  });
+  // close on outside click + Esc
+  document.addEventListener('click', (e) => {
+    if (popover?.hidden) return;
+    if (!popover.contains(e.target) && e.target !== popTrigger && !popTrigger?.contains(e.target)) {
+      setPopOpen(false);
+    }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && popover && !popover.hidden) setPopOpen(false);
+  });
+
+  // Keep the chip's label in sync with the active map / mode.
+  // App.js doesn't expose state directly, so we watch the DOM it already updates.
+  const navBtn  = document.getElementById('mode-btn-nav');
+  const slamBtn = document.getElementById('mode-btn-slam');
+  const slamCtrls = document.getElementById('slam-controls');
+  const carousel  = document.getElementById('map-carousel');
+  function refreshMapChipLabel() {
+    if (!popLabel) return;
+    if (slamBtn?.classList.contains('active')) {
+      popLabel.textContent = 'SLAM · live';
+    } else {
+      const active = carousel?.querySelector('.map-card.active .map-card-name');
+      popLabel.textContent = active?.textContent?.trim() || 'no map';
+    }
+  }
+  // Initial + observe changes app.js makes to mode buttons / carousel.
+  refreshMapChipLabel();
+  const mo = new MutationObserver(refreshMapChipLabel);
+  navBtn  && mo.observe(navBtn,  { attributes: true, attributeFilter: ['class'] });
+  slamBtn && mo.observe(slamBtn, { attributes: true, attributeFilter: ['class'] });
+  carousel && mo.observe(carousel, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+  // When SLAM controls become visible/hidden, refresh.
+  slamCtrls && mo.observe(slamCtrls, { attributes: true, attributeFilter: ['hidden'] });
 
   // ── RPLidar A1M8 polar scan visualizer ────────────────────
   const lc = document.getElementById('lidar-canvas');
@@ -376,30 +437,4 @@
     };
   }
 
-  // ── Safety button wiring (purely visual until backend implements) ─
-  const estop  = document.getElementById('estop-btn');
-  const resume = document.getElementById('resume-btn');
-  const stopT  = document.getElementById('stop-btn-top');
-  function flashState(label) {
-    const t = document.getElementById('toast');
-    if (!t) return;
-    t.textContent = label;
-    t.style.borderColor = 'var(--vn-border-bright)';
-    t.classList.add('active');
-    setTimeout(() => t.classList.remove('active'), 1800);
-  }
-  estop?.addEventListener('click', () => {
-    flashState('E-STOP ENGAGED');
-    resume.disabled = false;
-    fetch('/api/estop', { method: 'POST' }).catch(()=>{});
-  });
-  resume?.addEventListener('click', () => {
-    flashState('MISSION RESUMED');
-    resume.disabled = true;
-    fetch('/api/resume', { method: 'POST' }).catch(()=>{});
-  });
-  stopT?.addEventListener('click', () => {
-    flashState('STOP — motion halted');
-    fetch('/api/navigate/cancel', { method: 'POST' }).catch(()=>{});
-  });
 })();
