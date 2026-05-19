@@ -275,6 +275,8 @@ function connectBridge() {
             if (window.__vnLidar) window.__vnLidar.push(msg.ranges);
         } else if (msg.type === 'slam_map') {
             if (window.__vnMap) window.__vnMap.update(msg);
+            const resEl = document.getElementById('map-res');
+            if (resEl && msg.resolution) resEl.textContent = (msg.resolution * 100).toFixed(1) + 'cm';
         }
     };
 }
@@ -442,10 +444,12 @@ function updateStats(msg) {
         if (poseY)  poseY.textContent  = (p.y >= 0 ? '+' : '') + p.y.toFixed(3);
         if (poseTh) poseTh.textContent = `${yawDeg.toFixed(1)}°`;
         if (statHead) statHead.textContent = yawNorm.toFixed(1);
-        // 0° heading = North (up). CSS rotate is clockwise so the needle
-        // wrapper rotates directly by yaw. The translate(-50%,-50%) keeps
-        // the pivot at the compass centre.
         if (headNeedle) headNeedle.style.transform = `translate(-50%, -50%) rotate(${yawNorm}deg)`;
+        window.__vnMap?.updatePose(p.x, p.y, p.yaw);
+        const mapHeadEl = document.getElementById('map-heading');
+        if (mapHeadEl) mapHeadEl.textContent = yawNorm.toFixed(0) + '°';
+        const mapPoseEl = document.getElementById('map-pose');
+        if (mapPoseEl) mapPoseEl.textContent = `${p.x >= 0 ? '+' : ''}${p.x.toFixed(2)}, ${p.y >= 0 ? '+' : ''}${p.y.toFixed(2)}`;
     }
 
     // Pi Metrics
@@ -534,14 +538,15 @@ function renderLocations(locs) {
             <div class="loc-icon"><svg class="ico"><use href="#i-pin"/></svg></div>
             <div class="loc-main">
                 <span class="loc-name">${safe}</span>
-                <span class="loc-coords text-mono">X ${data.x.toFixed(2)} · Y ${data.y.toFixed(2)} · θ ${yawDeg.toFixed(0).padStart(3,'0')}°</span>
             </div>
             <button class="icon-btn icon-btn-go" title="Go" data-act="go"><svg class="ico"><use href="#i-chevron"/></svg></button>
+            <button class="icon-btn icon-btn-pose" title="Set pose (relocalize here)" data-act="pose"><svg class="ico"><use href="#i-crosshair"/></svg></button>
             <button class="icon-btn" title="Rename" data-act="edit"><svg class="ico"><use href="#i-pencil"/></svg></button>
             <button class="icon-btn icon-btn-danger" title="Delete" data-act="del"><svg class="ico"><use href="#i-trash"/></svg></button>
         `;
         row.querySelector('.loc-main').onclick = () => navigateTo(name);
         row.querySelector('[data-act="go"]').onclick = () => navigateTo(name);
+        row.querySelector('[data-act="pose"]').onclick = () => setRobotPose(name);
         row.querySelector('[data-act="edit"]').onclick = () => editLocationName(name);
         row.querySelector('[data-act="del"]').onclick = () => deleteLocation(name);
         locList.appendChild(row);
@@ -564,6 +569,18 @@ function saveLocation() {
             showToast(res.message || 'Failed to save', false);
         }
     });
+}
+
+function setRobotPose(name) {
+    fetch(`${location.protocol}//${location.hostname}:${APP_PORT}/api/locations/${encodeURIComponent(name)}/set_pose`, {
+        method: 'POST',
+    }).then(r => r.json()).then(res => {
+        if (res.success) {
+            showToast(`Pose set to '${name}' — AMCL relocalized`, true);
+        } else {
+            showToast(res.error || 'Failed to set pose', false);
+        }
+    }).catch(() => showToast('Failed to reach server', false));
 }
 
 function deleteLocation(name) {
@@ -799,6 +816,27 @@ stopTopBtn?.addEventListener('click', () => {
     addLog('NAV', 'Motion halted');
 });
 
+// ── Disable nav-only safety controls when in SLAM mode ───────────────────────
+const _stopNavBtn = document.getElementById('stop-nav-btn');
+function _applyNavOnlyButtons() {
+    const m = window.__vnMode.current;
+    const switching = window.__vnMode.switching;
+    const isNav = (m === 'nav') && !switching;
+    [estopBtn, resumeBtn, stopTopBtn, _stopNavBtn].forEach(b => {
+        if (!b) return;
+        if (b === resumeBtn) {
+            b.disabled = !isNav || !estopActive;
+        } else {
+            b.disabled = !isNav;
+        }
+        b.title = isNav ? (b.dataset.origTitle || b.title) :
+                 (switching ? 'Disabled during mode switch' : 'Disabled in SLAM mode');
+    });
+}
+[estopBtn, resumeBtn, stopTopBtn, _stopNavBtn].forEach(b => { if (b) b.dataset.origTitle = b.title; });
+window.addEventListener('vectorModeChange', _applyNavOnlyButtons);
+window.addEventListener('vectorModeSwitching', _applyNavOnlyButtons);
+
 clearChatBtn?.addEventListener('click', () => {
     if (confirm('Clear conversation history?')) {
         if (voiceWs && voiceWs.readyState === WebSocket.OPEN) {
@@ -897,10 +935,10 @@ addLog('SYS', 'Console online');
     const noData  = document.getElementById('map-no-data');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
+    ctx.imageSmoothingEnabled = false;
     let _img = null;
     let _meta = null;
+    let _pose = null;  // live pose from /amcl_pose via stats broadcast
     let _retryTimer = null;
 
     function getSize() {
@@ -917,9 +955,7 @@ addLog('SYS', 'Console online');
         if (w === 0 || h === 0) return;
         canvas.width  = w;
         canvas.height = h;
-        // Re-apply smoothing after resize (canvas reset clears context state)
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'high';
+        ctx.imageSmoothingEnabled = false;
         if (_img) draw();
     }
 
@@ -929,10 +965,13 @@ addLog('SYS', 'Console online');
         if (w === 0 || h === 0) return;
         if (canvas.width !== w || canvas.height !== h) {
             canvas.width = w; canvas.height = h;
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
+            ctx.imageSmoothingEnabled = false;
         }
-        const { width: mw, height: mh, resolution, origin_x, origin_y, robot_x, robot_y, robot_yaw } = _meta;
+        const { width: mw, height: mh, resolution, origin_x, origin_y } = _meta;
+        // Use live pose if available, else fall back to pose baked into map message
+        const robot_x   = _pose ? _pose.x   : (_meta.robot_x   || 0);
+        const robot_y   = _pose ? _pose.y   : (_meta.robot_y   || 0);
+        const robot_yaw = _pose ? _pose.yaw : (_meta.robot_yaw || 0);
         const cw = canvas.width, ch = canvas.height;
 
         const scale = Math.min(cw / mw, ch / mh);
@@ -946,8 +985,7 @@ addLog('SYS', 'Console online');
 
         // Robot marker — fixed pixel size so it's always visible
         if (resolution > 0) {
-            // image is 2× upscaled: each image pixel = resolution/2 metres
-            const pxPerMetre = 2 / resolution;
+            const pxPerMetre = 1 / resolution;
             const px = dx + (robot_x - origin_x) * pxPerMetre * scale;
             const py = dy + (mh - (robot_y - origin_y) * pxPerMetre) * scale;
 
@@ -978,6 +1016,11 @@ addLog('SYS', 'Console online');
     }
 
     window.__vnMap = {
+        updatePose(x, y, yaw) {
+            _pose = { x, y, yaw };
+            if (_img) draw();
+        },
+        resize() { resize(); draw(); },
         update(msg) {
             if (noData) noData.hidden = true;
             _meta = msg;
@@ -1010,18 +1053,54 @@ addLog('SYS', 'Console online');
         if (entries[0].isIntersecting && _img) { resize(); draw(); }
     }, { threshold: 0.1 }).observe(canvas);
 
-    new ResizeObserver(resize).observe(canvas.parentElement);
+    // ResizeObserver: re-attach when canvas parent changes (e.g. HUD reparent)
+    let _ro = null;
+    let _currentParent = null;
+    function attachResizeObserver() {
+        const parent = canvas.parentElement;
+        if (parent === _currentParent) return;
+        if (_ro) { try { _ro.disconnect(); } catch {} }
+        _currentParent = parent;
+        if (!parent) return;
+        _ro = new ResizeObserver(resize);
+        _ro.observe(parent);
+    }
+    attachResizeObserver();
+    // Watch for parent changes (canvas getting reparented)
+    new MutationObserver(() => {
+        if (canvas.parentElement !== _currentParent) {
+            attachResizeObserver();
+            requestAnimationFrame(() => { resize(); if (_img) draw(); });
+        }
+    }).observe(document.body, { childList: true, subtree: true });
+    // Window-resize fallback
+    window.addEventListener('resize', resize);
     resize();
 })();
 
 // ── Mode Manager ─────────────────────────────────────────────────────────────
+// Single source of truth: window.__vnMode
+// - .current      : 'nav' | 'slam' | 'unknown'
+// - .switching    : bool
+// - .selectedMap  : currently-selected map name in the carousel
+// - .activeMap    : map currently loaded in nav stack
+// - .request(mode, mapName?) : initiate a switch (idempotent; modal + lockout)
+//
+// Events dispatched on window:
+//   'vectorModeChange'    detail: { mode, activeMap }    — final state
+//   'vectorModeSwitching' detail: { switching, target }  — transition state
 
-let _currentMode = 'nav';
-let _modeSwitching = false;
-let _selectedMap = 'custom_map';
+window.__vnMode = {
+    current: 'unknown',
+    switching: false,
+    selectedMap: null,
+    activeMap: null,
+    lastSwitchAt: 0,
+};
+
+const MODE_SWITCH_COOLDOWN_MS = 2500;  // post-switch lockout
 
 const _modeBtnNav    = document.getElementById('mode-btn-nav');
-const _modeBtnSlam   = document.getElementById('mode-btn-slam');
 const _mapCarouselWrap = document.getElementById('map-carousel-wrap');
 const _mapCarousel   = document.getElementById('map-carousel');
 const _carouselPrev  = document.getElementById('carousel-prev');
@@ -1034,23 +1113,102 @@ const _modeSwitchEl  = document.getElementById('mode-switching');
 const _mapModeBadge  = document.getElementById('map-mode-badge');
 const _mapTabBadge   = document.getElementById('map-tab-badge');
 
+// ── Transition modal ───────────────────────────────────────────────────
+const _mtmModal    = document.getElementById('mode-transition-modal');
+const _mtmTitle    = document.getElementById('mtm-title');
+const _mtmSub      = document.getElementById('mtm-sub');
+const _mtmStepKill = _mtmModal?.querySelector('[data-step="kill"]');
+const _mtmStepSpawn= _mtmModal?.querySelector('[data-step="spawn"]');
+const _mtmStepReady= _mtmModal?.querySelector('[data-step="ready"]');
+
+function showTransitionModal(targetMode, mapName) {
+    if (!_mtmModal) return;
+    const isSlam = targetMode === 'slam';
+    if (_mtmTitle) _mtmTitle.textContent = isSlam ? 'Switching to SLAM mode' : (mapName ? `Loading map: ${mapName}` : 'Switching to NAV mode');
+    if (_mtmSub)   _mtmSub.textContent   = isSlam
+        ? 'Stopping Nav2 and starting SLAM Toolbox. Drive carefully to build the map.'
+        : 'Stopping SLAM and starting Nav2 with the selected map. AMCL localization will initialize.';
+    [_mtmStepKill, _mtmStepSpawn, _mtmStepReady].forEach(s => s?.classList.remove('active', 'done'));
+    _mtmStepKill?.classList.add('active');
+    _mtmModal.hidden = false;
+    // Animate steps optimistically (we don't have real progress events from backend)
+    setTimeout(() => { _mtmStepKill?.classList.remove('active'); _mtmStepKill?.classList.add('done'); _mtmStepSpawn?.classList.add('active'); }, 4000);
+    setTimeout(() => { _mtmStepSpawn?.classList.remove('active'); _mtmStepSpawn?.classList.add('done'); _mtmStepReady?.classList.add('active'); }, 12000);
+}
+function hideTransitionModal() {
+    if (!_mtmModal) return;
+    [_mtmStepKill, _mtmStepSpawn, _mtmStepReady].forEach(s => s?.classList.remove('active'));
+    [_mtmStepKill, _mtmStepSpawn, _mtmStepReady].forEach(s => s?.classList.add('done'));
+    setTimeout(() => { _mtmModal.hidden = true; }, 250);
+}
+
+// ── Event dispatch helpers ─────────────────────────────────────────────
+function _emitMode() {
+    window.dispatchEvent(new CustomEvent('vectorModeChange', {
+        detail: { mode: window.__vnMode.current, activeMap: window.__vnMode.activeMap },
+    }));
+}
+function _emitSwitching(target) {
+    window.dispatchEvent(new CustomEvent('vectorModeSwitching', {
+        detail: { switching: window.__vnMode.switching, target: target || null },
+    }));
+}
+
 function renderMapCarousel(maps) {
     if (!_mapCarousel || !maps || !maps.length) return;
     _mapCarousel.innerHTML = '';
     maps.forEach(m => {
         const name = m.name || m;
         const card = document.createElement('div');
-        card.className = 'map-card' + (name === _selectedMap ? ' active' : '');
+        card.className = 'map-card' + (name === window.__vnMode.selectedMap ? ' active' : '');
         card.dataset.map = name;
-        card.innerHTML = `<img class="map-card-img" src="${apiBase}/api/maps/${encodeURIComponent(name)}/image" loading="lazy" alt="${name}"><span class="map-card-name">${name}</span>`;
-        card.addEventListener('click', () => selectMap(name));
+        card.innerHTML = `
+            <img class="map-card-img" src="${apiBase}/api/maps/${encodeURIComponent(name)}/image" loading="lazy" alt="${name}">
+            <span class="map-card-name">${name}</span>
+            <div class="map-card-actions">
+                <button class="map-card-btn map-rename-btn" title="Rename" data-map="${name}">✎</button>
+                <button class="map-card-btn map-delete-btn" title="Delete" data-map="${name}">✕</button>
+            </div>`;
+        card.querySelector('.map-card-img').addEventListener('click', () => selectMap(name));
+        card.querySelector('.map-card-name').addEventListener('click', () => selectMap(name));
+        card.querySelector('.map-rename-btn').addEventListener('click', e => { e.stopPropagation(); promptRenameMap(name); });
+        card.querySelector('.map-delete-btn').addEventListener('click', e => { e.stopPropagation(); confirmDeleteMap(name); });
         _mapCarousel.appendChild(card);
     });
     updateCarouselArrows();
 }
 
+async function confirmDeleteMap(name) {
+    if (!confirm(`Delete map "${name}"? This cannot be undone.`)) return;
+    try {
+        const r = await fetch(`${apiBase}/api/maps/${encodeURIComponent(name)}`, { method: 'DELETE' });
+        const j = await r.json();
+        if (!r.ok) { showToast('error', j.error || 'Delete failed'); return; }
+        showToast('success', `Deleted: ${name}`);
+        if (window.__vnMode.selectedMap === name) window.__vnMode.selectedMap = null;
+        fetchMapsAndMode();
+    } catch { showToast('error', 'Delete failed'); }
+}
+
+async function promptRenameMap(oldName) {
+    const newName = prompt(`Rename "${oldName}" to:`, oldName);
+    if (!newName || newName.trim() === oldName) return;
+    try {
+        const r = await fetch(`${apiBase}/api/maps/${encodeURIComponent(oldName)}/rename`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ new_name: newName.trim() }),
+        });
+        const j = await r.json();
+        if (!r.ok) { showToast('error', j.error || 'Rename failed'); return; }
+        showToast('success', `Renamed to: ${j.new_name}`);
+        if (window.__vnMode.selectedMap === oldName) window.__vnMode.selectedMap = j.new_name;
+        fetchMapsAndMode();
+    } catch { showToast('error', 'Rename failed'); }
+}
+
 function selectMap(name) {
-    _selectedMap = name;
+    window.__vnMode.selectedMap = name;
     _mapCarousel?.querySelectorAll('.map-card').forEach(c => {
         c.classList.toggle('active', c.dataset.map === name);
     });
@@ -1071,32 +1229,54 @@ _carouselNext?.addEventListener('click', () => {
 _mapCarousel?.addEventListener('scroll', updateCarouselArrows);
 
 function applyModeUI(mode, maps, activeMap) {
-    _currentMode = mode;
-    _modeBtnNav?.classList.toggle('active', mode === 'nav');
-    _modeBtnSlam?.classList.toggle('active', mode === 'slam');
+    const prev = window.__vnMode.current;
+    window.__vnMode.current = mode;
+    window.__vnMode.activeMap = activeMap || null;
+    if (_modeBtnNav) {
+        _modeBtnNav.textContent = (mode || 'unknown').toUpperCase();
+        _modeBtnNav.className = `badge badge-mode text-mono badge-mode-${mode}`;
+    }
     if (_mapCarouselWrap) _mapCarouselWrap.hidden = (mode !== 'nav');
     if (_slamControls) _slamControls.hidden = (mode !== 'slam');
-    if (_mapModeBadge) _mapModeBadge.textContent = mode.toUpperCase();
+    if (_mapModeBadge) _mapModeBadge.textContent = (mode || 'UNK').toUpperCase();
     if (_mapTabBadge) _mapTabBadge.textContent = mode === 'slam' ? 'SLAM · MAPPING' : 'NAV · ACTIVE';
     if (maps) renderMapCarousel(maps);
     const nameEl = document.getElementById('current-map-name');
-    if (nameEl) nameEl.textContent = activeMap || _selectedMap || 'no map';
+    if (nameEl) nameEl.textContent = activeMap || window.__vnMode.selectedMap || 'no map';
+    _emitMode();
+    if (prev !== mode) addLog('OK', `Mode is ${mode.toUpperCase()}`);
 }
 
-function setModeSwitching(on) {
-    _modeSwitching = on;
+function setModeSwitching(on, targetMode) {
+    window.__vnMode.switching = on;
     if (_modeSwitchEl) _modeSwitchEl.hidden = !on;
-    if (_modeBtnNav)  _modeBtnNav.disabled  = on;
-    if (_modeBtnSlam) _modeBtnSlam.disabled  = on;
+    if (on) { showTransitionModal(targetMode, window.__vnMode.selectedMap); }
+    else    { hideTransitionModal(); window.__vnMode.lastSwitchAt = Date.now(); }
+    _emitSwitching(targetMode);
 }
 
-async function switchMode(mode) {
-    if (_modeSwitching || mode === _currentMode) return;
-    setModeSwitching(true);
+function isCooldownActive() {
+    return (Date.now() - window.__vnMode.lastSwitchAt) < MODE_SWITCH_COOLDOWN_MS;
+}
+
+async function switchMode(mode, opts = {}) {
+    if (window.__vnMode.switching) { showToast('Mode switch already in progress', false); return; }
+    if (mode === window.__vnMode.current && !opts.force) {
+        showToast(`Already in ${mode.toUpperCase()} mode`, false);
+        return;
+    }
+    if (isCooldownActive()) {
+        const remain = Math.ceil((MODE_SWITCH_COOLDOWN_MS - (Date.now() - window.__vnMode.lastSwitchAt)) / 1000);
+        showToast(`Please wait ${remain}s before switching again`, false);
+        return;
+    }
+    setModeSwitching(true, mode);
     addLog('SYS', `Switching to ${mode.toUpperCase()}…`);
     if (window.__vnMap) window.__vnMap.clear();
     const body = { mode };
-    if (mode === 'nav' && _selectedMap) body.map = _selectedMap;
+    if (mode === 'nav' && (opts.map || window.__vnMode.selectedMap)) {
+        body.map = opts.map || window.__vnMode.selectedMap;
+    }
     try {
         const res = await fetch(`${apiBase}/api/mode`, {
             method: 'POST',
@@ -1106,52 +1286,33 @@ async function switchMode(mode) {
         if (res.success) {
             applyModeUI(res.mode, null, res.map || null);
             showToast(`Switched to ${res.mode.toUpperCase()} mode`, true);
-            addLog('OK', `Mode: ${res.mode.toUpperCase()}`);
             startMapPoll();
         } else {
             showToast(res.error || 'Mode switch failed', false);
+            addLog('ERR', res.error || 'Mode switch failed');
         }
     } catch (e) {
         showToast('Mode switch error', false);
+        addLog('ERR', 'Mode switch error');
     } finally {
         setModeSwitching(false);
     }
 }
+window.switchMode = switchMode;  // expose for hud.js
 
 async function loadMap() {
-    if (!_selectedMap) { showToast('Select a map first', false); return; }
-    if (_modeSwitching) return;
-    setModeSwitching(true);
-    addLog('SYS', `Loading map: ${_selectedMap}…`);
-    if (window.__vnMap) window.__vnMap.clear();
-    try {
-        const res = await fetch(`${apiBase}/api/mode`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ mode: 'nav', map: _selectedMap }),
-        }).then(r => r.json());
-        if (res.success) {
-            applyModeUI(res.mode, null, res.map || _selectedMap);
-            showToast(`Map loaded: ${res.map || _selectedMap}`, true);
-            addLog('OK', `Map loaded: ${res.map || _selectedMap}`);
-            startMapPoll();
-        } else {
-            showToast(res.error || 'Load failed', false);
-        }
-    } catch (e) {
-        showToast('Load map error', false);
-    } finally {
-        setModeSwitching(false);
-    }
+    const sel = window.__vnMode.selectedMap;
+    if (!sel) { showToast('Select a map first', false); return; }
+    return switchMode('nav', { map: sel, force: true });
 }
-
 _loadMapBtn?.addEventListener('click', loadMap);
 
-async function saveMap() {
-    const name = (_slamMapName?.value || '').trim();
-    if (!name) { showToast('Enter a map name', false); return; }
-    if (!/^[a-zA-Z0-9_-]+$/.test(name)) { showToast('Name: letters, digits, _ - only', false); return; }
+async function saveMap(nameOverride, opts = {}) {
+    const name = (nameOverride ?? _slamMapName?.value ?? '').trim();
+    if (!name) { showToast('Enter a map name', false); return false; }
+    if (!/^[a-zA-Z0-9_-]+$/.test(name)) { showToast('Name: letters, digits, _ - only', false); return false; }
     if (_saveMapBtn) _saveMapBtn.disabled = true;
+    if (opts.onBusy) opts.onBusy(true);
     addLog('SYS', `Saving map '${name}'…`);
     try {
         const res = await fetch(`${apiBase}/api/maps/save`, {
@@ -1164,26 +1325,29 @@ async function saveMap() {
             addLog('OK', `Map saved: ${name}`);
             if (_slamMapName) _slamMapName.value = '';
             fetchMapsAndMode();
+            return true;
         } else {
             showToast(res.error || 'Save failed', false);
+            return false;
         }
     } catch (e) {
         showToast('Map save error', false);
+        return false;
     } finally {
         if (_saveMapBtn) _saveMapBtn.disabled = false;
+        if (opts.onBusy) opts.onBusy(false);
     }
 }
+window.saveMap = saveMap;  // expose for hud.js
 
 async function fetchMapsAndMode() {
     try {
         const res = await fetch(`${apiBase}/api/mode`).then(r => r.json());
-        if (res.map) _selectedMap = res.map;
-        applyModeUI(res.mode, res.maps.map(n => ({ name: n })), res.map);
+        if (res.map) window.__vnMode.selectedMap = res.map;
+        applyModeUI(res.mode || 'unknown', (res.maps || []).map(n => ({ name: n })), res.map);
     } catch (e) { /* silent */ }
 }
 
-_modeBtnNav?.addEventListener('click', () => switchMode('nav'));
-_modeBtnSlam?.addEventListener('click', () => switchMode('slam'));
 _saveMapBtn?.addEventListener('click', saveMap);
 _slamMapName?.addEventListener('keydown', e => { if (e.key === 'Enter') saveMap(); });
 

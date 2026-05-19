@@ -32,7 +32,8 @@ import rclpy.duration
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
-from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
+from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy, HistoryPolicy
+from geometry_msgs.msg import PoseWithCovarianceStamped, Twist, Quaternion
 from nav_msgs.msg import OccupancyGrid
 from sensor_msgs.msg import LaserScan
 import tf2_ros
@@ -42,6 +43,7 @@ from vector_interfaces.srv import (
     DeleteLocation, GetLocations, NavigateToLocation, SetLocation, RenameLocation,
     SetMode, GetMode, SaveMap, ListMaps,
 )
+from nav2_msgs.srv import SetInitialPose as SetInitialPoseSrv
 
 from .audio_utils import pcm_to_wav
 
@@ -81,6 +83,9 @@ class ModeRequest(BaseModel):
 
 class SaveMapRequest(BaseModel):
     name: str
+
+class RenameMapRequest(BaseModel):
+    new_name: str
 
 # ── Maps directory (read-only views still served by the web layer) ───────────
 
@@ -133,7 +138,13 @@ class UnifiedBridgeNode(Node):
         self.create_subscription(String, '/tts/input', self._on_tts_input, 10, callback_group=cb)
         self.create_subscription(Float32MultiArray, '/tts/audio/stream', self._on_tts_audio, 10, callback_group=cb)
         self.create_subscription(LaserScan, '/scan', self._on_scan, 10, callback_group=cb)
-        self.create_subscription(OccupancyGrid, '/map', self._on_map, 1, callback_group=cb)
+        map_qos = QoSProfile(
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            reliability=ReliabilityPolicy.RELIABLE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+        self.create_subscription(OccupancyGrid, '/map', self._on_map, map_qos, callback_group=cb)
 
         # TF buffer for robot pose in map frame
         self._tf_buffer = tf2_ros.Buffer()
@@ -151,6 +162,7 @@ class UnifiedBridgeNode(Node):
         self._svc_get_mode  = self.create_client(GetMode, '/mode_manager/get_mode', callback_group=cb)
         self._svc_save_map  = self.create_client(SaveMap, '/map_manager/save_map', callback_group=cb)
         self._svc_list_maps = self.create_client(ListMaps, '/map_manager/list_maps', callback_group=cb)
+        self._svc_set_initial_pose = self.create_client(SetInitialPoseSrv, '/set_initial_pose', callback_group=cb)
 
         # Teleop Watchdog
         self._target_twist = Twist()
@@ -271,44 +283,26 @@ class UnifiedBridgeNode(Node):
             free     = arr == 0
             occupied = arr > 0
             unknown  = ~(free | occupied)
-            rgba[free]     = [232, 234, 237, 255]  # light warm white
-            rgba[occupied] = [ 26,  31,  46, 255]  # dark navy
-            rgba[unknown]  = [ 58,  63,  82, 200]  # muted slate
+            rgba[free]     = [230, 232, 235, 255]  # light warm white
+            rgba[occupied] = [ 22,  26,  40, 255]  # dark navy
+            rgba[unknown]  = [ 48,  52,  68, 255]  # muted slate, fully opaque
 
             grid = rgba.reshape((h, w, 4))
             grid = np.flipud(grid)
 
             img = Image.fromarray(grid, mode='RGBA')
-            img = img.resize((w * 2, h * 2), Image.NEAREST)
             buf = io.BytesIO()
             img.save(buf, format='PNG', compress_level=1)
             b64 = base64.b64encode(buf.getvalue()).decode('ascii')
 
-            rx, ry, ryaw = 0.0, 0.0, 0.0
-            try:
-                tf = self._tf_buffer.lookup_transform(
-                    'map', 'base_link',
-                    rclpy.time.Time(),
-                    timeout=rclpy.duration.Duration(seconds=0.1))
-                rx = tf.transform.translation.x
-                ry = tf.transform.translation.y
-                q = tf.transform.rotation
-                ryaw = math.atan2(2 * (q.w * q.z + q.x * q.y),
-                                  1 - 2 * (q.y * q.y + q.z * q.z))
-            except Exception:
-                pass
-
             return {
                 'type': 'slam_map',
                 'img': b64,
-                'width': w * 2,
-                'height': h * 2,
+                'width': w,
+                'height': h,
                 'resolution': res,
                 'origin_x': ox,
                 'origin_y': oy,
-                'robot_x': rx,
-                'robot_y': ry,
-                'robot_yaw': ryaw,
             }
         except Exception as e:
             logger.warning(f'Map encode error: {e}')
@@ -451,6 +445,50 @@ async def rename_location(body: RenameLocationRequest):
     res = bridge.call_srv(bridge._svc_rename_loc, req)
     return JSONResponse({'success': res.success if res else False})
 
+@app.post('/api/locations/{name}/set_pose')
+async def set_pose_from_location(name: str):
+    """Tell AMCL the robot is at the saved location (pose estimation / relocalization)."""
+    locs_req = GetLocations.Request()
+    locs_res = bridge.call_srv(bridge._svc_get_locs, locs_req)
+    if not locs_res or name not in locs_res.names:
+        return JSONResponse({'success': False, 'error': f"Location '{name}' not found"}, status_code=404)
+
+    idx = list(locs_res.names).index(name)
+    x   = locs_res.xs[idx]
+    y   = locs_res.ys[idx]
+    yaw = locs_res.yaws[idx]
+
+    half = yaw / 2.0
+    qz = math.sin(half)
+    qw = math.cos(half)
+
+    req = SetInitialPoseSrv.Request()
+    req.pose.header.frame_id = 'map'
+    req.pose.pose.pose.position.x = x
+    req.pose.pose.pose.position.y = y
+    req.pose.pose.pose.position.z = 0.0
+    req.pose.pose.pose.orientation.x = 0.0
+    req.pose.pose.pose.orientation.y = 0.0
+    req.pose.pose.pose.orientation.z = qz
+    req.pose.pose.pose.orientation.w = qw
+    # Moderate covariance — AMCL will refine from scan
+    cov = [0.0] * 36
+    cov[0]  = 0.25   # x
+    cov[7]  = 0.25   # y
+    cov[35] = 0.0685 # yaw (~15 deg std)
+    req.pose.pose.covariance = cov
+
+    loop = asyncio.get_event_loop()
+    res = await loop.run_in_executor(None, lambda: bridge.call_srv(bridge._svc_set_initial_pose, req, timeout_sec=5.0))
+    if res is None:
+        return JSONResponse({'success': False, 'error': 'set_initial_pose service unavailable'}, status_code=503)
+    logger.info(f'Set initial pose to location "{name}" x={x:.3f} y={y:.3f} yaw={yaw:.3f}')
+    
+    bridge._latest_stats['pose'] = {'x': float(x), 'y': float(y), 'yaw': float(yaw)}
+    asyncio.run_coroutine_threadsafe(bridge._broadcast(bridge._latest_stats), bridge._loop)
+
+    return JSONResponse({'success': True})
+
 @app.post('/api/navigate')
 async def navigate(body: NavigateRequest):
     req = NavigateToLocation.Request()
@@ -562,6 +600,38 @@ async def save_map(body: SaveMapRequest):
         return JSONResponse({'success': False, 'error': res.message}, status_code=500)
     logger.info(f'Map saved: {res.path}')
     return JSONResponse({'success': True, 'name': req.name, 'path': res.path})
+
+@app.delete('/api/maps/{name}')
+async def delete_map(name: str):
+    if '/' in name or '..' in name:
+        return JSONResponse({'error': 'invalid name'}, status_code=400)
+    deleted = []
+    for ext in ('.pgm', '.yaml'):
+        p = MAPS_DIR / f'{name}{ext}'
+        if p.exists():
+            p.unlink()
+            deleted.append(str(p))
+    if not deleted:
+        return JSONResponse({'error': 'not found'}, status_code=404)
+    logger.info(f'Deleted map: {name}')
+    return JSONResponse({'success': True, 'name': name})
+
+@app.patch('/api/maps/{name}/rename')
+async def rename_map(name: str, body: RenameMapRequest):
+    new_name = body.new_name.strip()
+    if '/' in name or '..' in name or '/' in new_name or '..' in new_name or not new_name:
+        return JSONResponse({'error': 'invalid name'}, status_code=400)
+    if not (MAPS_DIR / f'{name}.pgm').exists():
+        return JSONResponse({'error': 'not found'}, status_code=404)
+    if (MAPS_DIR / f'{new_name}.pgm').exists():
+        return JSONResponse({'error': 'name already exists'}, status_code=409)
+    for ext in ('.pgm', '.yaml'):
+        src = MAPS_DIR / f'{name}{ext}'
+        dst = MAPS_DIR / f'{new_name}{ext}'
+        if src.exists():
+            src.rename(dst)
+    logger.info(f'Renamed map: {name} -> {new_name}')
+    return JSONResponse({'success': True, 'old_name': name, 'new_name': new_name})
 
 @app.post('/api/navigate/cancel')
 async def cancel_nav():
