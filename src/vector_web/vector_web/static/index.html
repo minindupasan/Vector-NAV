@@ -43,6 +43,8 @@
         <symbol id="i-map" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" x2="9" y1="3" y2="18"/><line x1="15" x2="15" y1="6" y2="21"/></symbol>
         <symbol id="i-save" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></symbol>
         <symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></symbol>
+        <symbol id="i-expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></symbol>
+        <symbol id="i-compress" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></symbol>
       </defs>
     </svg>
 
@@ -412,6 +414,9 @@
                         <span class="batt-voltage batt-volt" id="batt-voltage">--.-V</span>
                     </div>
                 </div>
+                <button id="fullscreen-btn" class="btn btn-ghost btn-icon" title="Toggle fullscreen">
+                    <svg class="ico"><use href="#i-expand"/></svg>
+                </button>
                 <button id="enter-drive-btn" class="btn btn-primary">
                     <svg class="ico"><use href="#i-target"/></svg>
                     <span>DRIVE</span>
@@ -725,6 +730,27 @@
     <script src="/static/app.js?v=3"></script>
     <script src="/static/effects.js"></script>
     <script src="/static/hud.js"></script>
+    <script>
+    (() => {
+      const btn = document.getElementById('fullscreen-btn');
+      if (!btn) return;
+      const icon = btn.querySelector('use');
+      function update() {
+        const fs = !!document.fullscreenElement;
+        icon.setAttribute('href', fs ? '#i-compress' : '#i-expand');
+        btn.title = fs ? 'Exit fullscreen' : 'Enter fullscreen';
+      }
+      btn.addEventListener('click', () => {
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        } else {
+          document.exitFullscreen().catch(() => {});
+        }
+      });
+      document.addEventListener('fullscreenchange', update);
+      update();
+    })();
+    </script>
     <!-- ── SYSTEM MODALS ─────────────────────────────────────────── -->
     <div id="modal-jetson" class="modal-overlay">
         <div class="modal-content">
