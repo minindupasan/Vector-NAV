@@ -31,6 +31,9 @@ Environment=LOCATIONS_FILE=/home/admin/vector_nav/config/locations.yaml
 
 Environment=HOST=0.0.0.0
 Environment=PORT=8080
+
+# Camera WebRTC server runs on the Pi now
+Environment=CAMERA_WEBRTC_URL=https://192.168.8.169:8443
 Environment=XDG_RUNTIME_DIR=/run/user/1000
 Environment=TTS_SPEAKER_DEVICE=pulse
 

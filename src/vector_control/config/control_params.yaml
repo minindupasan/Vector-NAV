@@ -15,12 +15,6 @@ motor_driver:
     # Stop motors if no cmd_vel received for this long (seconds)
     cmd_vel_timeout: 0.5
 
-    # Acceleration ramp limit (m/s²). Lower = smoother starts/stops.
-    max_accel: 0.6
-
-    # EMA filter weight on new velocity readings (0–1). Lower = smoother.
-    ema_alpha: 0.18
-
     # Maximum wheel linear speed (m/s)
     # 280 RPM × 2π × 0.034m radius / 60 ≈ 1.0 m/s no-load
     max_motor_speed: 1.0
@@ -47,17 +41,31 @@ motor_driver:
     pid_ki_rr: 8.12396
     pid_kd_rr: 0.0
 
-    # Minimum speeds to prevent stalling (identified via teleop)
-    min_linear_speed: 0.07
-    min_angular_speed: 1.0
+    # Minimum command speed flooring (0 = disabled, preserves smooth teleop).
+    # Set non-zero only if you need to push past a stall band on a specific bot.
+    min_linear_speed: 0.35
+    min_angular_speed: 2.25
 
-    # Minimum PWM to overcome static friction
+    # Minimum PWM to overcome static friction (applied only when wheel is stalled)
     min_pwm: 0.18
 
-    # Rear wheel speed scale during rotation (0.7–1.0).
-    # Reduces rear wheel targets when rotating to prevent slip from lower
-    # normal force on the rear axle. Start at 0.85 and tune down if slip persists.
-    rear_rotation_scale: 1.0
+    # Acceleration limit for cmd_vel ramping (m/s²). Heavier robot needs
+    # higher accel so post-kickstart speed transitions don't drag — the
+    # rest→moving transition itself bypasses the ramp (jump-start).
+    max_accel: 2.5
+
+    # cmd_vel timeouts. cmd_vel_timeout is the floor (used when the
+    # commanded velocity is at max). cmd_vel_timeout_max applies at the
+    # slowest end — sticky window so the heavy chassis has time to actually
+    # move before the command is zeroed.
+    cmd_vel_timeout: 0.5
+    cmd_vel_timeout_max: 2.0
+
+    # Skid-steer slip compensation. Front axle gets (1 + bias) of the angular
+    # term, rear gets (1 - bias). 0.0 = standard diff drive (all 4 wheels equal
+    # on a side). Positive bias makes fronts drive the turn more (use when the
+    # rear wheels are scrubbing); negative biases the rear. Tune in [-0.4, 0.4].
+    turn_front_bias: 0.15
 
     # Encoder direction flips (1 or -1)
     # Use if a wheel reports negative velocity when moving forward
@@ -76,7 +84,7 @@ motor_driver:
 imu_publisher:
   ros__parameters:
     i2c_bus: 1
-    publish_rate: 50.0
+    publish_rate: 100.0
 
     # MPU6500 ranges
     accel_range: 2      # 2, 4, 8, or 16 g
@@ -86,7 +94,10 @@ imu_publisher:
     madgwick_beta: 0.1
 
     # Gyro calibration samples at startup (keep robot still!)
-    calibrate_samples: 200
+    calibrate_samples: 500
+
+    # Gyro deadband (rad/s) to ignore tiny noise/drift when still
+    gyro_deadband: 0.005
 
     # Use HMC5883L magnetometer for 9-DOF (set false for 6-DOF only)
     use_magnetometer: true

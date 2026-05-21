@@ -45,11 +45,10 @@ def generate_launch_description():
             executable='rplidar_node',
             name='rplidar_node',
             parameters=[{
-                'serial_port': '/dev/ttyUSB0',
+                'serial_port': '/dev/lidar',
                 'serial_baudrate': 115200,
                 'frame_id': 'lidar_link',
                 'angle_compensate': True,
-                'scan_mode': 'Standard',
             }],
             output='screen',
         ),
@@ -60,6 +59,14 @@ def generate_launch_description():
             executable='ekf_node',
             name='ekf_filter_node',
             parameters=[ekf_params],
+            output='screen',
+        ),
+
+        # System statistics publisher (CPU, Memory, Battery, IP)
+        Node(
+            package='vector_control',
+            executable='system_stats_node',
+            name='system_stats_node',
             output='screen',
         ),
     ])

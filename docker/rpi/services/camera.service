@@ -1,0 +1,17 @@
+[Unit]
+Description=VECTOR NAV — IMX708 → WebRTC stream
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /home/admin/vector_nav/docker/rpi/services/camera_stream.py
+Restart=on-failure
+RestartSec=5
+# Override via /etc/systemd/system/camera.service.d/override.conf
+# Environment=CAPTURE_FPS=30
+# Environment=WEBRTC_W=960
+# Environment=WEBRTC_H=540
+
+[Install]
+WantedBy=multi-user.target

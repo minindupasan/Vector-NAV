@@ -19,6 +19,10 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/GetLocations.srv"
   "srv/DeleteLocation.srv"
   "srv/RenameLocation.srv"
+  "srv/SetMode.srv"
+  "srv/GetMode.srv"
+  "srv/SaveMap.srv"
+  "srv/ListMaps.srv"
   DEPENDENCIES std_msgs builtin_interfaces
 )
 

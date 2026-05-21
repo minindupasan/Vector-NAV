@@ -1,49 +1,50 @@
 #!/usr/bin/env python3
-"""Standalone camera → WebRTC stream. No ROS2 dependency."""
+"""Pi-side camera → WebRTC stream.
 
-import os
-os.environ.setdefault("EGL_PLATFORM", "surfaceless")
+Captures from the IMX708 via Picamera2/libcamera, scales to WebRTC size in
+the PiSP ISP (zero-copy), and serves a /offer SDP endpoint over HTTPS.
 
-import sys
-sys.path.insert(0, "/home/admin/src/vector_web/.venv/lib/python3.10/site-packages")
+The Jetson web app (CAMERA_WEBRTC_URL) proxies SDP offers here over the
+LAN; the actual media (RTP) flows directly browser ↔ Pi.
+"""
 
 import asyncio
 import fractions
 import json
+import os
 import signal
 import ssl
 import threading
 
 import av
-import cv2
 import numpy as np
 from aiohttp import web
 from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack
+from libcamera import Transform, controls
+from picamera2 import Picamera2
 
 # ── Config ────────────────────────────────────────────────────────────────────
-SENSOR_MODE     = 1
-CAPTURE_W       = 2304
-CAPTURE_H       = 1296
-CAPTURE_FPS     = 56
-WEBRTC_W        = 1280
-WEBRTC_H        = 720
-JPEG_QUALITY    = 85
-WEBRTC_KBPS     = 2000
-HOST            = "0.0.0.0"
-PORT            = 8443
-CERT_FILE       = "/home/admin/src/vector_web/certs/cert.pem"
-KEY_FILE        = "/home/admin/src/vector_web/certs/key.pem"
-STATIC_DIR      = "/home/admin/src/vector_web/static"
+SENSOR_RAW_W   = int(os.environ.get("SENSOR_RAW_W", "2304"))
+SENSOR_RAW_H   = int(os.environ.get("SENSOR_RAW_H", "1296"))
+WEBRTC_W       = int(os.environ.get("WEBRTC_W", "1280"))
+WEBRTC_H       = int(os.environ.get("WEBRTC_H", "720"))
+CAPTURE_FPS    = int(os.environ.get("CAPTURE_FPS", "56"))
+WEBRTC_KBPS    = int(os.environ.get("WEBRTC_KBPS", "2000"))
+HOST           = os.environ.get("HOST", "0.0.0.0")
+PORT           = int(os.environ.get("PORT", "8443"))
+CERT_FILE      = os.environ.get("CERT_FILE", "/etc/vector/cert.pem")
+KEY_FILE       = os.environ.get("KEY_FILE", "/etc/vector/key.pem")
 
-VIDEO_CLOCK_RATE   = 90000
-VIDEO_TIME_BASE    = fractions.Fraction(1, VIDEO_CLOCK_RATE)
-FRAME_DURATION     = VIDEO_CLOCK_RATE // CAPTURE_FPS
+VIDEO_CLOCK_RATE = 90000
+VIDEO_TIME_BASE  = fractions.Fraction(1, VIDEO_CLOCK_RATE)
+FRAME_DURATION   = VIDEO_CLOCK_RATE // CAPTURE_FPS
+
 
 # ── Frame buffer ──────────────────────────────────────────────────────────────
 class _FrameBuffer:
     def __init__(self):
         self._frame = None
-        self._lock  = threading.Lock()
+        self._lock = threading.Lock()
         self._event = asyncio.Event()
 
     def put(self, frame: np.ndarray, loop: asyncio.AbstractEventLoop):
@@ -75,13 +76,12 @@ class CameraVideoTrack(VideoStreamTrack):
         if img is None:
             img = np.zeros((WEBRTC_H, WEBRTC_W, 3), dtype=np.uint8)
         vf = av.VideoFrame.from_ndarray(img, format="bgr24")
-        vf.pts       = self._pts
+        vf.pts = self._pts
         vf.time_base = VIDEO_TIME_BASE
-        self._pts   += FRAME_DURATION
+        self._pts += FRAME_DURATION
         return vf
 
 
-# ── SDP bitrate injection ─────────────────────────────────────────────────────
 def _set_sdp_bitrate(sdp: str, kbps: int) -> str:
     lines = sdp.split("\r\n")
     out, in_video, injected = [], False, False
@@ -100,40 +100,61 @@ def _set_sdp_bitrate(sdp: str, kbps: int) -> str:
 # ── Camera capture ────────────────────────────────────────────────────────────
 class CameraCapture:
     def __init__(self, buf: _FrameBuffer):
-        self._buf  = buf
+        self._buf = buf
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._stop = threading.Event()
 
-        pipeline = (
-            f"nvarguscamerasrc sensor-mode={SENSOR_MODE} num-buffers=-1 "
-            f"tnr-mode=2 tnr-strength=1.0 ee-mode=2 eestrength=0.5 ! "
-            f"video/x-raw(memory:NVMM),width={CAPTURE_W},height={CAPTURE_H},framerate={CAPTURE_FPS}/1 ! "
-            f"nvvidconv ! "
-            f"video/x-raw,width={WEBRTC_W},height={WEBRTC_H},format=BGRx ! "
-            f"appsink drop=1 max-buffers=1"
+        self._picam = Picamera2()
+        frame_us = int(1_000_000 / CAPTURE_FPS)
+        config = self._picam.create_video_configuration(
+            main={"size": (WEBRTC_W, WEBRTC_H), "format": "RGB888"},
+            raw={"size": (SENSOR_RAW_W, SENSOR_RAW_H)},
+            transform=Transform(hflip=1, vflip=1),
+            controls={
+                "FrameDurationLimits": (frame_us, frame_us),
+                # Auto exposure / gain / white balance
+                "AeEnable": True,
+                "AeExposureMode": controls.AeExposureModeEnum.Normal,
+                "AeMeteringMode": controls.AeMeteringModeEnum.CentreWeighted,
+                "AwbEnable": True,
+                "AwbMode": controls.AwbModeEnum.Auto,
+                # Continuous autofocus (IMX708 has PDAF)
+                "AfMode": controls.AfModeEnum.Continuous,
+                "AfRange": controls.AfRangeEnum.Normal,
+                "AfSpeed": controls.AfSpeedEnum.Fast,
+                # Image quality
+                "NoiseReductionMode": controls.draft.NoiseReductionModeEnum.Fast,
+                "Sharpness": 1.0,
+                "Contrast": 1.0,
+                "Saturation": 1.0,
+                "Brightness": 0.0,
+            },
+            buffer_count=4,
+            queue=False,
         )
-        self._cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
-        if not self._cap.isOpened():
-            raise RuntimeError("Failed to open GStreamer/argus pipeline")
+        self._picam.configure(config)
+        self._picam.start()
+        print(f"[camera] IMX708 raw {SENSOR_RAW_W}x{SENSOR_RAW_H} @ "
+              f"{CAPTURE_FPS}fps → WebRTC {WEBRTC_W}x{WEBRTC_H}", flush=True)
 
         self._thread = threading.Thread(target=self._loop_fn, daemon=True)
         self._thread.start()
-        print(f"[camera] {CAPTURE_W}x{CAPTURE_H} @ {CAPTURE_FPS}fps → WebRTC {WEBRTC_W}x{WEBRTC_H}", flush=True)
 
     def set_loop(self, loop: asyncio.AbstractEventLoop):
         self._loop = loop
 
     def _loop_fn(self):
-        while True:
-            ret, bgrx = self._cap.read()
-            if not ret or bgrx is None:
-                continue
-            bgr = np.ascontiguousarray(bgrx[:, :, :3])
+        while not self._stop.is_set():
+            frame = self._picam.capture_array("main")
             if self._loop is not None:
-                self._buf.put(bgr, self._loop)
+                self._buf.put(frame, self._loop)
 
     def release(self):
-        if self._cap.isOpened():
-            self._cap.release()
+        self._stop.set()
+        try:
+            self._picam.stop()
+        except Exception:
+            pass
 
 
 # ── WebRTC signaling server ───────────────────────────────────────────────────
@@ -145,8 +166,8 @@ async def run_server(buf: _FrameBuffer, cam: CameraCapture):
 
     async def handle_offer(request: web.Request) -> web.Response:
         params = await request.json()
-        offer  = RTCSessionDescription(sdp=params["sdp"], type=params["type"])
-        pc     = RTCPeerConnection()
+        offer = RTCSessionDescription(sdp=params["sdp"], type=params["type"])
+        pc = RTCPeerConnection()
         pcs.add(pc)
 
         @pc.on("connectionstatechange")
@@ -167,13 +188,12 @@ async def run_server(buf: _FrameBuffer, cam: CameraCapture):
             text=json.dumps({"sdp": pc.localDescription.sdp, "type": pc.localDescription.type}),
         )
 
-    async def index(_):
-        return web.FileResponse(f"{STATIC_DIR}/drive.html")
+    async def health(_):
+        return web.json_response({"ok": True})
 
     app = web.Application()
     app.router.add_post("/offer", handle_offer)
-    app.router.add_get("/", index)
-    app.router.add_static("/", STATIC_DIR)
+    app.router.add_get("/health", health)
 
     ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ssl_ctx.load_cert_chain(CERT_FILE, KEY_FILE)
@@ -185,14 +205,13 @@ async def run_server(buf: _FrameBuffer, cam: CameraCapture):
 
     stop = loop.create_future()
     loop.add_signal_handler(signal.SIGTERM, stop.set_result, None)
-    loop.add_signal_handler(signal.SIGINT,  stop.set_result, None)
+    loop.add_signal_handler(signal.SIGINT, stop.set_result, None)
     await stop
 
     await asyncio.gather(*[pc.close() for pc in pcs])
     await runner.cleanup()
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
 def main():
     buf = _FrameBuffer()
     cam = CameraCapture(buf)
