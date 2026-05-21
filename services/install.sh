@@ -18,7 +18,7 @@
 set -e
 SERVICES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-ALL_SERVICES=(vector-llm vector-assistant vector-web vector-navigation)
+ALL_SERVICES=(vector-llm vector-assistant vector-web vector-navigation vector-camera)
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 

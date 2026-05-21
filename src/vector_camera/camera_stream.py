@@ -105,7 +105,7 @@ class CameraCapture:
 
         pipeline = (
             f"nvarguscamerasrc sensor-mode={SENSOR_MODE} num-buffers=-1 "
-            f"tnr-mode=1 tnr-strength=0.5 ee-mode=2 eestrength=0.5 ! "
+            f"tnr-mode=2 tnr-strength=1.0 ee-mode=2 eestrength=0.5 ! "
             f"video/x-raw(memory:NVMM),width={CAPTURE_W},height={CAPTURE_H},framerate={CAPTURE_FPS}/1 ! "
             f"nvvidconv ! "
             f"video/x-raw,width={WEBRTC_W},height={WEBRTC_H},format=BGRx ! "

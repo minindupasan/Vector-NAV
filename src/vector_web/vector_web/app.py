@@ -21,7 +21,8 @@ from typing import Optional
 import numpy as np
 from PIL import Image
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+import httpx
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
@@ -407,9 +408,26 @@ async def startup():
     
     logger.info('Web bridge ready')
 
+CAMERA_WEBRTC_URL = os.environ.get('CAMERA_WEBRTC_URL', 'https://localhost:8443')
+
 @app.get('/')
 async def index():
     return FileResponse(str(STATIC_DIR / 'index.html'))
+
+@app.post('/camera/offer')
+async def camera_offer(request: Request):
+    body = await request.body()
+    async with httpx.AsyncClient(verify=False) as client:
+        try:
+            resp = await client.post(
+                f'{CAMERA_WEBRTC_URL}/offer',
+                content=body,
+                headers={'Content-Type': 'application/json'},
+                timeout=10.0,
+            )
+            return Response(content=resp.content, media_type='application/json', status_code=resp.status_code)
+        except httpx.ConnectError:
+            return JSONResponse({'error': 'camera service unavailable'}, status_code=503)
 
 # ── API Endpoints (Proxied to ROS2) ──────────────────────────────────────────
 
