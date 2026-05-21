@@ -1,0 +1,14 @@
+[Unit]
+Description=VECTOR NAV — Battery monitor (ADS1115)
+After=multi-user.target
+
+[Service]
+Type=simple
+RuntimeDirectory=vector
+RuntimeDirectoryMode=0755
+ExecStart=/usr/bin/python3 /home/admin/vector_nav/docker/rpi/services/battery.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,20 @@
+[Unit]
+Description=VECTOR NAV — GPIO shutdown button watcher
+After=multi-user.target
+
+[Service]
+Type=simple
+RuntimeDirectory=vector
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+ExecStart=/usr/bin/python3 /home/admin/vector_nav/docker/rpi/services/shutdown_button.py
+Restart=on-failure
+RestartSec=5
+# Override via /etc/systemd/system/shutdown.service.d/override.conf
+# Environment=SHUTDOWN_PIN=8
+# Environment=HOLD_TIME=2.0
+# Environment=COUNTDOWN_SEC=5
+# Environment=JETSON_HOST=192.168.8.143
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,2 @@
+# RPLidar A1/A2/A3 via CH340 USB-serial adapter — stable /dev/lidar symlink.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", MODE:="0666", SYMLINK+="lidar"
