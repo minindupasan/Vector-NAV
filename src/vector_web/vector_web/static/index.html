@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="/static/colors_and_type.css">
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v=2">
 </head>
 <body>
 
@@ -35,53 +35,268 @@
         <symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
         <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
         <symbol id="i-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></symbol>
+        <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
         <symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+        <symbol id="i-crosshair" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="22" x2="18" y1="12" y2="12"/><line x1="6" x2="2" y1="12" y2="12"/><line x1="12" x2="12" y1="6" y2="2"/><line x1="12" x2="12" y1="22" y2="18"/></symbol>
         <symbol id="i-activity" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.5.5 0 0 1-.96 0L9.24 2.18a.5.5 0 0 0-.96 0l-2.35 8.36A2 2 0 0 1 4 12H2"/></symbol>
         <symbol id="i-route" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></symbol>
+        <symbol id="i-map" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" x2="9" y1="3" y2="18"/><line x1="15" x2="15" y1="6" y2="21"/></symbol>
+        <symbol id="i-save" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></symbol>
         <symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></symbol>
+        <symbol id="i-expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></symbol>
+        <symbol id="i-compress" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></symbol>
       </defs>
     </svg>
 
-    <!-- ── DRIVE MODE OVERLAY ───────────────────────────────────────── -->
+    <!-- ── DRIVE MODE — FPV HUD OVERLAY ──────────────────────────────── -->
     <div id="drive-overlay" class="drive-overlay">
-        <button id="close-drive" class="close-drive-btn"><svg class="ico"><use href="#i-square"/></svg></button>
 
-        <div id="orientation-notice" class="orientation-notice">
-            <p>Please rotate your device to landscape</p>
+        <!-- Cyberpunk boot sequence (visible only during entry, removed by animation) -->
+        <div class="hud-boot" aria-hidden="true">
+            <div class="hud-boot-flash"></div>
+            <div class="hud-boot-sweep"></div>
+            <div class="hud-boot-grid"></div>
+            <div class="hud-boot-glitch">
+                <span class="g r"></span><span class="g c"></span>
+            </div>
+            <div class="hud-boot-rings" aria-hidden="true">
+                <span></span><span></span><span></span>
+            </div>
+            <pre class="hud-boot-console">
+&gt; vector_nav.drive_mode.bootstrap()
+&gt; uplink ........ <i class="ok">OK</i>
+&gt; lidar ......... <i class="ok">OK</i>
+&gt; camera ........ <i class="ok">OK</i>
+&gt; imu ........... <i class="ok">OK</i>
+&gt; control ....... <i class="ok">OK</i>
+&gt; HUD ACTIVE</pre>
         </div>
 
-        <div class="drive-layout">
-            <div class="joystick-container left">
-                <div id="joystick-linear"></div>
-                <span class="joystick-label">LINEAR</span>
+        <!-- Camera feed (full-bleed). WebRTC via /camera/offer proxy. -->
+        <div class="drive-camera">
+            <video id="drive-camera-video" autoplay playsinline muted></video>
+            <div class="drive-camera-fallback">
+                <div class="scanline"></div>
+                <div class="no-signal">
+                    <svg class="ico" style="width:22px;height:22px"><use href="#i-radio"/></svg>
+                    <span>NO CAMERA SIGNAL</span>
+                    <em>/camera/stream</em>
+                </div>
             </div>
+            <!-- HUD environment chrome -->
+            <div class="hud-vignette"></div>
+            <div class="hud-grain"></div>
+            <div class="hud-scanlines"></div>
+            <!-- Corner brackets -->
+            <span class="hud-bracket tl"></span>
+            <span class="hud-bracket tr"></span>
+            <span class="hud-bracket bl"></span>
+            <span class="hud-bracket br"></span>
+            <!-- Center reticle -->
+            <div class="hud-reticle" aria-hidden="true">
+                <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
+                    <circle cx="50" cy="50" r="22" fill="none" stroke="currentColor" stroke-width="0.6" opacity="0.45"/>
+                    <circle cx="50" cy="50" r="2.2" fill="currentColor"/>
+                    <line x1="50" y1="14" x2="50" y2="34" stroke="currentColor" stroke-width="0.8"/>
+                    <line x1="50" y1="66" x2="50" y2="86" stroke="currentColor" stroke-width="0.8"/>
+                    <line x1="14" y1="50" x2="34" y2="50" stroke="currentColor" stroke-width="0.8"/>
+                    <line x1="66" y1="50" x2="86" y2="50" stroke="currentColor" stroke-width="0.8"/>
+                </svg>
+            </div>
+        </div>
 
-            <div class="drive-center-panel">
-                <div class="drive-stats">
-                    <div id="drive-stat-battery">--%</div>
-                    <div id="drive-stat-vel">0.00 m/s</div>
+        <!-- TOP STRIP — brand + mode + exit -->
+        <div class="hud-strip hud-strip-top">
+            <div class="hud-pill hud-pill-brand">
+                <object data="/static/logo.svg" type="image/svg+xml" class="brand-mark hud-brand-mark" aria-label="Vector Nav"></object>
+                <span class="hud-pill-tag">DRIVE</span>
+                <span class="hud-pill-live"><i class="dot"></i>LIVE</span>
+            </div>
+            <div class="hud-pill hud-pill-time text-mono">
+                <span id="hud-clock">00:00:00</span>
+                <span class="hud-sep">·</span>
+                <span class="hud-sub">SESSION <em id="hud-session">00:00</em></span>
+            </div>
+            <button id="close-drive" class="hud-exit" aria-label="Exit drive mode">
+                <svg class="ico"><use href="#i-x"/></svg>
+                <span>EXIT</span>
+            </button>
+        </div>
+
+        <!-- TOP-LEFT — Scan / Map mini window -->
+        <div class="hud-panel hud-tl" data-panel="map">
+            <div class="hud-panel-head">
+                <div class="hud-tabs">
+                    <button class="hud-tab active" data-hud-tab="scan">SCAN</button>
+                    <button class="hud-tab" data-hud-tab="map">MAP</button>
                 </div>
+                <span class="hud-panel-meta text-mono"><span id="hud-mini-meta">RPLIDAR · 12m</span></span>
+            </div>
+            <div class="hud-mini-stage" id="hud-mini-stage">
+                <!-- canvases are reparented here from the dashboard on entry -->
+            </div>
+        </div>
 
-                <div class="preset-row">
-                    <button class="preset-btn active" data-preset="ECO">ECO</button>
-                    <button class="preset-btn" data-preset="CLASSIC">STD</button>
-                    <button class="preset-btn" data-preset="SPORT">FAST</button>
+        <!-- TOP-RIGHT — telemetry stack -->
+        <div class="hud-panel hud-tr">
+            <div class="hud-row hud-row-hero">
+                <div class="hud-stat hud-stat-vel">
+                    <div class="hud-stat-label">VEL</div>
+                    <div class="hud-stat-num text-mono"><span id="hud-vel">0.00</span><em>m/s</em></div>
                 </div>
+                <div class="hud-stat hud-stat-hdg">
+                    <div class="hud-stat-label">HDG</div>
+                    <div class="hud-stat-num text-mono"><span id="hud-heading">000</span><em>°</em></div>
+                </div>
+            </div>
+            <div class="hud-bar">
+                <span class="hud-bar-label">THR</span>
+                <div class="hud-bar-track"><div class="hud-bar-fill" id="hud-thr-fill"></div></div>
+            </div>
+            <div class="hud-bar">
+                <span class="hud-bar-label">YAW</span>
+                <div class="hud-bar-track hud-bar-bi"><div class="hud-bar-fill bi" id="hud-yaw-fill"></div></div>
+            </div>
+            <div class="hud-row hud-row-meta">
+                <div class="hud-pose text-mono">
+                    <span><b>X</b><span id="hud-pose-x">0.000</span></span>
+                    <span><b>Y</b><span id="hud-pose-y">0.000</span></span>
+                    <span><b>θ</b><span id="hud-pose-th">0.0°</span></span>
+                </div>
+            </div>
+            <div class="hud-row hud-row-batt">
+                <div class="hud-batt batt-cell">
+                    <span class="hud-batt-label">PWR</span>
+                    <div class="hud-batt-anim">
+                        <svg viewBox="0 0 38 88" class="hud-batt-svg">
+                            <defs>
+                                <clipPath id="hud-bat-clip">
+                                    <rect x="3" y="9" width="32" height="76" rx="4" />
+                                </clipPath>
+                                <filter id="hud-glow-filter" x="-30%" y="-10%" width="160%" height="120%">
+                                    <feGaussianBlur stdDeviation="3" result="blur" />
+                                    <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+                                </filter>
+                                <linearGradient id="hud-glass-grad" x1="0" y1="0" x2="1" y2="0">
+                                    <stop offset="0%"   stop-color="white" stop-opacity="0.18" />
+                                    <stop offset="45%"  stop-color="white" stop-opacity="0.06" />
+                                    <stop offset="100%" stop-color="white" stop-opacity="0" />
+                                </linearGradient>
+                                <linearGradient id="hud-shim-grad" x1="0" y1="0" x2="1" y2="1">
+                                    <stop offset="0%"   stop-color="white" stop-opacity="0" />
+                                    <stop offset="50%"  stop-color="white" stop-opacity="0.45" />
+                                    <stop offset="100%" stop-color="white" stop-opacity="0" />
+                                </linearGradient>
+                            </defs>
 
-                <div class="speed-settings">
-                    <div class="setting-group">
-                        <label>MAX SPEED (m/s)</label>
-                        <input type="range" id="max-speed-slider" min="0.1" max="1.5" step="0.05" value="0.5">
-                        <span id="max-speed-val">0.50</span>
+                            <!-- Outer colour glow -->
+                            <rect data-batt-glow x="1" y="7" width="36" height="80" rx="5" fill="#22c55e" opacity="0.22" filter="url(#hud-glow-filter)" />
+
+                            <!-- Terminal nub -->
+                            <rect x="13" y="1" width="12" height="6" rx="1.5" fill="rgba(255,255,255,0.32)" />
+
+                            <!-- Body shell -->
+                            <rect x="1" y="7" width="36" height="80" rx="5" fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.34)" stroke-width="1.5" />
+
+                            <!-- Liquid layers -->
+                            <g clip-path="url(#hud-bat-clip)">
+                                <rect data-batt-base-fill x="3" y="9" width="32" height="76" fill="#22c55e" opacity="0.22" />
+                                <g transform="translate(3,9)">
+                                    <g class="batt-wave-slow"><path data-batt-path="1" fill="#22c55e" opacity="0.20" /></g>
+                                </g>
+                                <g transform="translate(3,9)">
+                                    <g class="batt-wave-med-r"><path data-batt-path="2" fill="#22c55e" opacity="0.34" /></g>
+                                </g>
+                                <g transform="translate(3,9)">
+                                    <g class="batt-wave-med"><path data-batt-path="3" fill="#22c55e" opacity="0.55" /></g>
+                                </g>
+                                <g transform="translate(3,9)">
+                                    <g class="batt-wave-fast"><path data-batt-path="4" fill="#22c55e" opacity="0.85" /></g>
+                                </g>
+                                <rect x="-7" y="9" width="52" height="80" fill="url(#hud-shim-grad)" class="batt-shimmer" />
+                                <rect x="3" y="9" width="32" height="76" fill="url(#hud-glass-grad)" />
+                            </g>
+                        </svg>
                     </div>
+                    <span class="hud-batt-pct text-mono"><span class="batt-pct">--</span>%</span>
                 </div>
             </div>
+        </div>
 
-            <div class="joystick-container right">
-                <div id="joystick-angular"></div>
-                <span class="joystick-label">ANGULAR</span>
+        <!-- TOP-CENTER — compact mission log -->
+        <div class="hud-panel hud-log" data-panel="log">
+            <div class="hud-panel-head">
+                <span class="hud-panel-title"><svg class="ico"><use href="#i-activity"/></svg>MISSION LOG</span>
+                <span class="text-muted text-mono">live</span>
+            </div>
+            <ul class="hud-log-list" id="hud-log-list"></ul>
+        </div>
+
+        <!-- LEFT JOYSTICK ZONE -->
+        <div class="hud-stick hud-stick-l">
+            <div id="joystick-linear" class="hud-stick-zone"></div>
+            <div class="hud-stick-meta">
+                <span class="hud-stick-axis">LINEAR · m/s</span>
+                <span class="text-mono hud-stick-val" id="hud-stick-l-val">0.00</span>
             </div>
         </div>
+
+        <!-- RIGHT JOYSTICK ZONE -->
+        <div class="hud-stick hud-stick-r">
+            <div id="joystick-angular" class="hud-stick-zone"></div>
+            <div class="hud-stick-meta">
+                <span class="hud-stick-axis">ANGULAR · rad/s</span>
+                <span class="text-mono hud-stick-val" id="hud-stick-r-val">0.00</span>
+            </div>
+        </div>
+
+        <!-- BOTTOM STRIP — presets + speed + voice + halt -->
+        <div class="hud-strip hud-strip-bot">
+            <div class="hud-pill hud-pill-presets">
+                <button class="hud-preset preset-btn active" data-preset="ECO">ECO</button>
+                <button class="hud-preset preset-btn" data-preset="CLASSIC">STD</button>
+                <button class="hud-preset preset-btn" data-preset="SPORT">FAST</button>
+            </div>
+            <div class="hud-pill hud-pill-speed">
+                <label class="text-muted">MAX</label>
+                <input type="range" id="max-speed-slider" min="0.1" max="1.5" step="0.05" value="0.5">
+                <span class="text-mono"><span id="max-speed-val">0.50</span>m/s</span>
+            </div>
+
+            <div class="hud-voice-wrap">
+                <span class="hud-voice-ring r1"></span>
+                <span class="hud-voice-ring r2"></span>
+                <span class="hud-voice-ring r3"></span>
+                <button id="hud-mic-btn" class="hud-voice-btn" aria-label="Hold to talk">
+                    <svg class="ico-lg"><use href="#i-mic"/></svg>
+                </button>
+                <span class="hud-voice-hint text-mono">HOLD TO TALK</span>
+            </div>
+
+            <button id="hud-halt" class="hud-halt" title="Halt all motion">
+                <svg class="ico"><use href="#i-octagon"/></svg>
+                <span>HALT</span>
+            </button>
+            <div class="hud-pill hud-pill-mode text-mono">
+                <span class="text-muted">MODE</span>
+                <span id="hud-drive-mode">MANUAL</span>
+            </div>
+            <div class="hud-pill hud-pill-modesw">
+                <button class="hud-modesw-btn active" id="hud-mode-nav" data-mode="nav" title="Switch to NAV mode">NAV</button>
+                <button class="hud-modesw-btn" id="hud-mode-slam" data-mode="slam" title="Switch to SLAM mode">SLAM</button>
+            </div>
+            <div class="hud-pill hud-pill-savemap" id="hud-savemap-pill" hidden>
+                <input type="text" id="hud-savemap-input" class="hud-savemap-input" placeholder="map name…" autocomplete="off" maxlength="40">
+                <button id="hud-savemap-btn" class="hud-savemap-btn" title="Save current SLAM map">
+                    <svg class="ico"><use href="#i-save"/></svg>
+                    <span>SAVE</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Hidden legacy nodes for app.js back-compat (do not remove) -->
+        <span id="drive-stat-battery" hidden></span>
+        <span id="drive-stat-vel" hidden></span>
     </div>
 
     <!-- ── MAIN APP SHELL ───────────────────────────────────────────── -->
@@ -99,9 +314,7 @@
 
             <!-- System status pills -->
             <div class="sys-pills">
-                <div class="sys-pill"><svg class="ico"><use href="#i-radio"/></svg><span>ROS2 <em>humble</em></span><span class="sys-dot ok"></span></div>
-                <div class="sys-pill"><svg class="ico"><use href="#i-wifi"/></svg><span>UPLINK <em>52ms</em></span><span class="sys-dot ok"></span></div>
-                <div class="sys-pill clickable" id="pill-jetson"><svg class="ico"><use href="#i-cpu"/></svg><span>JETSON <em id="pill-jetson-val">--%</em></span><span class="sys-dot ok"></span></div>
+<div class="sys-pill clickable" id="pill-jetson"><svg class="ico"><use href="#i-cpu"/></svg><span>JETSON <em id="pill-jetson-val">--%</em></span><span class="sys-dot ok"></span></div>
                 <div class="sys-pill clickable" id="pill-pi"><svg class="ico"><use href="#i-chip"/></svg><span>PI 5 <em id="pill-pi-val">--%</em></span><span class="sys-dot ok"></span></div>
                 <div class="sys-pill"><svg class="ico"><use href="#i-layers"/></svg><span>LIDAR <em>10Hz</em></span><span class="sys-dot ok"></span></div>
             </div>
@@ -124,25 +337,86 @@
 
             <!-- Battery + drive entry -->
             <div class="topbar-right">
-                <div class="battery-cell" id="battery-cell" data-pct="87">
-                    <svg viewBox="0 0 56 28" class="batt-svg" preserveAspectRatio="none">
-                        <rect class="batt-shell" x="0.5" y="0.5" width="51" height="27" rx="4" fill="none"/>
-                        <rect class="batt-tip"   x="52"  y="9"   width="4"  height="10" rx="1"/>
-                        <clipPath id="batt-clip"><rect x="3" y="3" width="46" height="22" rx="2"/></clipPath>
-                        <clipPath id="batt-fill-clip"><rect id="batt-fill-clip-rect" x="3" y="3" width="46" height="22"/></clipPath>
-                        <g clip-path="url(#batt-clip)">
-                          <rect class="batt-fill" x="3" y="3" width="46" height="22"/>
-                          <g clip-path="url(#batt-fill-clip)">
-                            <g class="batt-wave batt-wave-back"><path d="M-18 5 Q -9 8.2 0 5 T 18 5 T 36 5 T 54 5 T 72 5 T 90 5 T 108 5 V25 H-18 Z"/></g>
-                            <g class="batt-wave batt-wave-front"><path d="M-18 6 Q -9 2.8 0 6 T 18 6 T 36 6 T 54 6 T 72 6 T 90 6 T 108 6 V25 H-18 Z"/></g>
-                          </g>
-                        </g>
-                    </svg>
+                <div class="battery-cell batt-cell" id="battery-cell" data-pct="0">
+                    <div class="battery-anim-wrap">
+                        <svg width="38" height="88" viewBox="0 0 38 88" class="batt-svg-new">
+                            <defs>
+                                <clipPath id="bat-clip-new">
+                                    <rect x="3" y="9" width="32" height="76" rx="4" />
+                                </clipPath>
+                                <filter id="glow-filter" x="-30%" y="-10%" width="160%" height="120%">
+                                    <feGaussianBlur stdDeviation="4" result="blur" />
+                                    <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+                                </filter>
+                                <linearGradient id="glass-grad" x1="0" y1="0" x2="1" y2="0">
+                                    <stop offset="0%"   stop-color="white" stop-opacity="0.18" />
+                                    <stop offset="45%"  stop-color="white" stop-opacity="0.06" />
+                                    <stop offset="100%" stop-color="white" stop-opacity="0" />
+                                </linearGradient>
+                                <linearGradient id="shim-grad" x1="0" y1="0" x2="1" y2="1">
+                                    <stop offset="0%"   stop-color="white" stop-opacity="0" />
+                                    <stop offset="50%"  stop-color="white" stop-opacity="0.45" />
+                                    <stop offset="100%" stop-color="white" stop-opacity="0" />
+                                </linearGradient>
+                            </defs>
+                
+                            <!-- Outer colour glow -->
+                            <rect data-batt-glow x="1" y="7" width="36" height="80" rx="5" fill="#22c55e" opacity="0.18" filter="url(#glow-filter)" />
+                
+                            <!-- Terminal nub -->
+                            <rect x="11" y="1" width="16" height="6" rx="2" fill="rgba(255,255,255,0.22)" />
+                
+                            <!-- Body shell -->
+                            <rect x="1" y="7" width="36" height="80" rx="5" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.30)" stroke-width="1.5" />
+                
+                            <!-- Liquid layers -->
+                            <g clip-path="url(#bat-clip-new)">
+                                <!-- Dark base fill -->
+                                <rect data-batt-base-fill x="3" y="9" width="32" height="76" fill="#22c55e" opacity="0.20" />
+                
+                                <!-- Layer 1 — slowest -->
+                                <g transform="translate(3,9)">
+                                    <g class="batt-wave-slow">
+                                        <path data-batt-path="1" fill="#22c55e" opacity="0.20" />
+                                    </g>
+                                </g>
+                                <!-- Layer 2 — reverse -->
+                                <g transform="translate(3,9)">
+                                    <g class="batt-wave-med-r">
+                                        <path data-batt-path="2" fill="#22c55e" opacity="0.34" />
+                                    </g>
+                                </g>
+                                <!-- Layer 3 — forward -->
+                                <g transform="translate(3,9)">
+                                    <g class="batt-wave-med">
+                                        <path data-batt-path="3" fill="#22c55e" opacity="0.55" />
+                                    </g>
+                                </g>
+                                <!-- Layer 4 — fastest -->
+                                <g transform="translate(3,9)">
+                                    <g class="batt-wave-fast">
+                                        <path data-batt-path="4" fill="#22c55e" opacity="0.82" />
+                                    </g>
+                                </g>
+                
+                                <!-- Shimmer sweep -->
+                                <rect x="-7" y="9" width="52" height="80" fill="url(#shim-grad)" class="batt-shimmer" />
+                
+                                <!-- Left-edge glass highlight -->
+                                <rect x="3" y="9" width="32" height="76" fill="url(#glass-grad)" />
+                            </g>
+                        </svg>
+                    </div>
                     <div class="batt-readout">
-                        <span class="batt-pct" id="batt-pct">87</span><span class="batt-unit">%</span>
-                        <span class="batt-eta" id="batt-eta">2h 14m</span>
+                        <div class="batt-pct-row">
+                            <span class="batt-pct" id="batt-pct">--</span><span class="batt-unit">%</span>
+                        </div>
+                        <span class="batt-voltage batt-volt" id="batt-voltage">--.-V</span>
                     </div>
                 </div>
+                <button id="fullscreen-btn" class="btn btn-ghost btn-icon" title="Toggle fullscreen">
+                    <svg class="ico"><use href="#i-expand"/></svg>
+                </button>
                 <button id="enter-drive-btn" class="btn btn-primary">
                     <svg class="ico"><use href="#i-target"/></svg>
                     <span>DRIVE</span>
@@ -199,9 +473,6 @@
                         </div>
                         <div class="voice-controls-row">
                             <div class="mic-wrap">
-                                <span class="mic-ring r1"></span>
-                                <span class="mic-ring r2"></span>
-                                <span class="mic-ring r3"></span>
                                 <button class="mic-btn" id="micBtn" disabled>
                                     <svg class="ico-lg"><use href="#i-mic"/></svg>
                                 </button>
@@ -209,9 +480,6 @@
                             
                             <div class="spectrum-stage" id="spectrum-stage">
                                 <canvas id="spectrum-bars" class="spectrum-bars"></canvas>
-                                <div class="spectrum-rings" aria-hidden="true">
-                                    <span></span><span></span><span></span>
-                                </div>
                                 <div class="spectrum-readout">
                                     <span class="text-mono spectrum-time" id="spec-time">00:00</span>
                                     <span class="text-mono spectrum-level" id="spec-level">−∞ dB</span>
@@ -252,9 +520,9 @@
                         </div>
                         <div class="card-meta">
                             <span class="badge badge-soft tab-meta" data-tab="scan">RPLIDAR A1M8 · 5.5Hz</span>
-                            <span class="badge badge-soft tab-meta" data-tab="map" hidden>SLAM · LOCKED</span>
+                            <span class="badge badge-soft tab-meta" data-tab="map" id="map-tab-badge" hidden>NAV · ACTIVE</span>
                             <span class="text-muted text-mono tab-meta" data-tab="scan"><span id="scan-pts">0</span> pts · 12m</span>
-                            <span class="text-muted text-mono tab-meta" data-tab="map" hidden>Lab Floor 2</span>
+                            <span class="text-muted text-mono tab-meta" data-tab="map" id="map-tab-meta" hidden></span>
                         </div>
                     </div>
 
@@ -282,54 +550,71 @@
 
                     <!-- TAB 2: LIVE MAP -->
                     <div class="tab-pane map-stage" data-pane="map">
-                        <svg viewBox="0 0 600 380" class="map-svg" preserveAspectRatio="xMidYMid meet">
-                            <defs>
-                                <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
-                                    <path d="M 24 0 L 0 0 0 24" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>
-                                </pattern>
-                                <radialGradient id="bot-glow" cx="50%" cy="50%" r="50%">
-                                    <stop offset="0%" stop-color="#fab7b7" stop-opacity="0.6"/>
-                                    <stop offset="100%" stop-color="#fab7b7" stop-opacity="0"/>
-                                </radialGradient>
-                            </defs>
-                            <rect width="600" height="380" fill="url(#grid)"/>
-                            <!-- room outlines -->
-                            <path d="M 40 60 L 280 60 L 280 180 L 380 180 L 380 60 L 560 60 L 560 320 L 40 320 Z" fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="1.5"/>
-                            <path d="M 200 60 L 200 180 M 280 180 L 280 320 M 380 220 L 560 220 M 380 260 L 460 260 L 460 320" fill="none" stroke="rgba(255,255,255,0.10)" stroke-width="1"/>
-                            <!-- planned route -->
-                            <path id="route-path" d="M 120 280 Q 200 240 260 200 T 420 140" fill="none" stroke="#fab7b7" stroke-width="2" stroke-dasharray="4 6" opacity="0.85"/>
-                            <!-- waypoints -->
-                            <g class="waypoint">
-                                <circle cx="120" cy="280" r="6" fill="#ffffff"/>
-                                <text x="132" y="283" class="map-label">Dock</text>
-                            </g>
-                            <g class="waypoint">
-                                <circle cx="420" cy="140" r="6" fill="none" stroke="#ffffff" stroke-width="1.5"/>
-                                <text x="432" y="143" class="map-label">Kitchen</text>
-                            </g>
-                            <g class="waypoint">
-                                <circle cx="490" cy="280" r="4" fill="rgba(255,255,255,0.4)"/>
-                                <text x="500" y="283" class="map-label dim">Lab Bench</text>
-                            </g>
-                            <g class="waypoint">
-                                <circle cx="180" cy="120" r="4" fill="rgba(255,255,255,0.4)"/>
-                                <text x="190" y="123" class="map-label dim">Reception</text>
-                            </g>
-                            <!-- bot -->
-                            <g id="bot-marker" transform="translate(260,200)">
-                                <circle r="34" fill="url(#bot-glow)"/>
-                                <circle r="10" fill="#fab7b7"/>
-                                <circle r="10" fill="none" stroke="#ffffff" stroke-width="1.5"/>
-                                <line x1="0" y1="0" x2="14" y2="-6" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
-                            </g>
-                            <!-- lidar fan -->
-                            <path d="M 260 200 L 360 156 A 110 110 0 0 0 360 244 Z" fill="rgba(250,183,183,0.08)" stroke="rgba(250,183,183,0.25)" stroke-width="1"/>
-                        </svg>
-                        <div class="map-overlay">
-                            <div class="map-stat"><span class="text-muted">HEADING</span><span class="text-mono">042.3°</span></div>
-                            <div class="map-stat"><span class="text-muted">VEL</span><span class="text-mono">1.20 m/s</span></div>
-                            <div class="map-stat"><span class="text-muted">DIST</span><span class="text-mono">4.2 m</span></div>
-                            <div class="map-stat"><span class="text-muted">ETA</span><span class="text-mono">00:12</span></div>
+                        <!-- Full-bleed map canvas -->
+                        <div class="map-canvas-wrap">
+                            <canvas id="map-canvas" class="map-canvas"></canvas>
+                            <div class="map-no-data" id="map-no-data">
+                                <svg class="ico" style="width:28px;height:28px"><use href="#i-map"/></svg>
+                                <span style="font-size:var(--vn-fs-small);color:var(--vn-fg-muted)">Waiting for map data…</span>
+                            </div>
+
+                            <!-- Floating top-left: current mode badge (switch from Drive HUD) -->
+                            <div class="map-floater map-floater-tl">
+                                <span class="badge badge-mode text-mono" id="mode-btn-nav">NAV</span>
+                                <div class="mode-switching" id="mode-switching" hidden>
+                                    <span class="mode-spinner"></span>
+                                    <span class="text-muted text-mono">Switching…</span>
+                                </div>
+                            </div>
+
+                            <!-- Floating top-right: Refresh + Maps popover trigger -->
+                            <div class="map-floater map-floater-tr" style="display:flex;gap:6px;align-items:center;">
+                                <button class="map-pop-trigger" id="map-refresh-btn" title="Refresh map" style="padding:0 8px;min-width:32px;justify-content:center;">
+                                    <svg class="ico" id="map-refresh-ico"><use href="#i-refresh"/></svg>
+                                </button>
+                                <button class="map-pop-trigger" id="map-pop-trigger" aria-expanded="false">
+                                    <svg class="ico"><use href="#i-layers"/></svg>
+                                    <span class="text-mono pop-trigger-label" id="current-map-name">no map</span>
+                                    <svg class="ico chev"><use href="#i-chevron"/></svg>
+                                </button>
+                                <div class="map-popover" id="map-popover" hidden>
+                                    <div class="popover-arrow"></div>
+                                    <div class="popover-section">
+                                        <div class="popover-title">
+                                            <svg class="ico"><use href="#i-layers"/></svg>
+                                            <span>Saved Maps</span>
+                                        </div>
+                                        <div class="map-carousel-wrap" id="map-carousel-wrap">
+                                            <button class="carousel-arrow" id="carousel-prev" aria-label="Previous map">&#8249;</button>
+                                            <div class="map-carousel" id="map-carousel"></div>
+                                            <button class="carousel-arrow" id="carousel-next" aria-label="Next map">&#8250;</button>
+                                        </div>
+                                        <button id="load-map-btn" class="btn btn-load-map btn-block">
+                                            <svg class="ico"><use href="#i-map"/></svg><span>LOAD SELECTED</span>
+                                        </button>
+                                    </div>
+                                    <div class="popover-section" id="slam-controls" hidden>
+                                        <div class="popover-title">
+                                            <svg class="ico"><use href="#i-save"/></svg>
+                                            <span>Save Current SLAM Map</span>
+                                        </div>
+                                        <div class="slam-row">
+                                            <input type="text" id="slam-map-name" class="slam-name-input" placeholder="map name…" autocomplete="off">
+                                            <button id="save-map-btn" class="btn btn-secondary btn-sm">
+                                                <svg class="ico"><use href="#i-save"/></svg><span>SAVE</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Bottom overlay stats -->
+                            <div class="map-overlay">
+                                <div class="map-stat"><span class="text-muted">MODE</span><span class="text-mono" id="map-mode-badge">NAV</span></div>
+                                <div class="map-stat"><span class="text-muted">HEADING</span><span class="text-mono" id="map-heading">---°</span></div>
+                                <div class="map-stat"><span class="text-muted">POSE</span><span class="text-mono" id="map-pose">--,--</span></div>
+                                <div class="map-stat"><span class="text-muted">RES</span><span class="text-mono" id="map-res">--cm</span></div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -359,11 +644,29 @@
                             <div class="tele-num"><span id="stat-vel">0.00</span><em>m/s</em></div>
                             <div class="tele-bar"><div class="tele-bar-fill" id="vel-bar" style="width: 0%;"></div></div>
                         </div>
-                        <div class="tele">
+                        <div class="tele tele-compass-cell">
                             <div class="tele-label"><svg class="ico"><use href="#i-compass"/></svg>Heading</div>
-                            <div class="tele-num"><span id="stat-heading">000.0</span><em>°</em></div>
-                            <div class="tele-compass">
-                                <div class="tele-compass-needle" id="heading-needle" style="transform: rotate(0deg)"></div>
+                            <div class="tele-compass-row">
+                                <div class="tele-num"><span id="stat-heading">000.0</span><em>°</em></div>
+                                <div class="tele-compass" aria-hidden="true">
+                                    <span class="cmp-mark cmp-n">N</span>
+                                    <span class="cmp-mark cmp-e">E</span>
+                                    <span class="cmp-mark cmp-s">S</span>
+                                    <span class="cmp-mark cmp-w">W</span>
+                                    <span class="cmp-tick t0"></span>
+                                    <span class="cmp-tick t45"></span>
+                                    <span class="cmp-tick t90"></span>
+                                    <span class="cmp-tick t135"></span>
+                                    <span class="cmp-tick t180"></span>
+                                    <span class="cmp-tick t225"></span>
+                                    <span class="cmp-tick t270"></span>
+                                    <span class="cmp-tick t315"></span>
+                                    <div class="tele-compass-needle" id="heading-needle">
+                                        <span class="needle-n"></span>
+                                        <span class="needle-s"></span>
+                                    </div>
+                                    <span class="cmp-hub"></span>
+                                </div>
                             </div>
                         </div>
                         <div class="tele">
@@ -409,9 +712,45 @@
     <!-- TOAST -->
     <div id="toast" class="toast"></div>
 
+    <!-- MODE TRANSITION MODAL -->
+    <div id="mode-transition-modal" class="mode-transition-modal" hidden>
+        <div class="mtm-card">
+            <div class="mtm-spinner"></div>
+            <div class="mtm-title" id="mtm-title">Switching mode…</div>
+            <div class="mtm-sub" id="mtm-sub">Bringing up navigation stack. Please wait — this may take 10–25 seconds.</div>
+            <div class="mtm-steps" id="mtm-steps">
+                <div class="mtm-step" data-step="kill">Stopping current stack</div>
+                <div class="mtm-step" data-step="spawn">Launching new stack</div>
+                <div class="mtm-step" data-step="ready">Waiting for services</div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
-    <script src="/static/app.js?v=2"></script>
+    <script src="/static/app.js?v=3"></script>
     <script src="/static/effects.js"></script>
+    <script src="/static/hud.js"></script>
+    <script>
+    (() => {
+      const btn = document.getElementById('fullscreen-btn');
+      if (!btn) return;
+      const icon = btn.querySelector('use');
+      function update() {
+        const fs = !!document.fullscreenElement;
+        icon.setAttribute('href', fs ? '#i-compress' : '#i-expand');
+        btn.title = fs ? 'Exit fullscreen' : 'Enter fullscreen';
+      }
+      btn.addEventListener('click', () => {
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        } else {
+          document.exitFullscreen().catch(() => {});
+        }
+      });
+      document.addEventListener('fullscreenchange', update);
+      update();
+    })();
+    </script>
     <!-- ── SYSTEM MODALS ─────────────────────────────────────────── -->
     <div id="modal-jetson" class="modal-overlay">
         <div class="modal-content">

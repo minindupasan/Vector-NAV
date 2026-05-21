@@ -6,50 +6,75 @@
  * - Mic ring activation (.live class on .mic-wrap and .spectrum-stage)
  */
 (() => {
-  // ── Battery ───────────────────────────────────────────────
-  const cell = document.getElementById('battery-cell');
-  const pctEl = document.getElementById('batt-pct');
-  const etaEl = document.getElementById('batt-eta');
-  const fillEl = cell?.querySelector('.batt-fill');
-  const fillClip = document.getElementById('batt-fill-clip-rect');
-  const waveBack  = cell?.querySelector('.batt-wave-back path');
-  const waveFront = cell?.querySelector('.batt-wave-front path');
-  let battTarget = parseFloat(cell?.dataset.pct || '87');
-  let battShown = battTarget;
+  // ── Battery (supports N instances — topbar + HUD) ─────────
+  // Each instance is a `.batt-cell` with `.batt-pct` (text), optional `.batt-volt`,
+  // and SVG sub-parts marked by data-batt-glow / data-batt-base-fill / data-batt-path.
+  const cells = Array.from(document.querySelectorAll('.batt-cell'));
+  // Back-compat: the original topbar also has id="battery-cell" without the new class.
+  const legacy = document.getElementById('battery-cell');
+  if (legacy && !cells.includes(legacy)) cells.push(legacy);
 
-  function setBattery(pct) {
-    battTarget = Math.max(0, Math.min(100, pct));
-    cell.dataset.state = pct < 15 ? 'low' : pct < 35 ? 'warn' : 'ok';
-    const eta = Math.round((pct / 100) * 154); // 154 min full
-    const h = Math.floor(eta / 60), m = eta % 60;
-    etaEl.textContent = `${h}h ${String(m).padStart(2, '0')}m`;
+  let battTarget = 87;
+  if (legacy?.dataset.pct) battTarget = parseFloat(legacy.dataset.pct) || 87;
+  let battShown = battTarget;
+  let voltShown = 12.6;
+
+  const innerW = 32, innerH = 76;
+  const PERIOD = 36, AMP = 6;
+  const REPS = Math.ceil(innerW / PERIOD) + 5;
+
+  function makePath(yLevel, amp) {
+    let d = `M 0,${yLevel}`;
+    for (let i = 0; i < REPS; i++) {
+      const x = i * PERIOD;
+      d += ` Q ${x + PERIOD * 0.25},${yLevel - amp} ${x + PERIOD * 0.5},${yLevel}`;
+      d += ` Q ${x + PERIOD * 0.75},${yLevel + amp} ${x + PERIOD},${yLevel}`;
+    }
+    d += ` V ${innerH + 4} H 0 Z`;
+    return d;
   }
 
-  function updateWaves(pct) {
-    if (!waveBack || !waveFront) return;
-    // Base amplitude slightly increased (from ~2.0 to 3.2), then scaled by pct
-    const amp = 3.2 * (pct / 100);
-    // Back wave: was peak-up, now trough-down (baseline 5)
-    const dBack = `M-18 5 Q -9 ${5 + amp} 0 5 T 18 5 T 36 5 T 54 5 T 72 5 T 90 5 T 108 5 V25 H-18 Z`;
-    // Front wave: was trough-down, now peak-up (baseline 6)
-    const dFront = `M-18 6 Q -9 ${6 - amp} 0 6 T 18 6 T 36 6 T 54 6 T 72 6 T 90 6 T 108 6 V25 H-18 Z`;
-    waveBack.setAttribute('d', dBack);
-    waveFront.setAttribute('d', dFront);
+  function setBattery(pct, voltage) {
+    battTarget = Math.max(0, Math.min(100, pct));
+    if (voltage !== undefined) voltShown = voltage;
+    const state = pct <= 20 ? 'low' : pct < 50 ? 'warn' : 'ok';
+    cells.forEach(c => {
+      c.dataset.state = state;
+      c.classList.toggle('animate-pulse', pct <= 20);
+    });
   }
 
   function tickBattery() {
     battShown += (battTarget - battShown) * 0.08;
-    const w = (battShown / 100 * 46).toFixed(2);
-    if (pctEl)  pctEl.textContent  = battShown.toFixed(0);
-    if (fillEl) fillEl.setAttribute('width', w);
-    if (fillClip) fillClip.setAttribute('width', w);
-    updateWaves(battShown);
+    document.querySelectorAll('.batt-pct').forEach(el => { el.textContent = battShown.toFixed(0); });
+    document.querySelectorAll('.batt-volt').forEach(el => { el.textContent = `${voltShown.toFixed(1)}V`; });
+
+    const pct = battShown;
+    const fillY = innerH * (1 - Math.max(0, Math.min(100, pct)) / 100);
+    const fillColor = pct > 50 ? "#22c55e" : pct > 20 ? "#eab308" : "#ef4444";
+    const d1 = makePath(fillY, AMP * 0.35);
+    const d2 = makePath(fillY, AMP * 0.60);
+    const d3 = makePath(fillY, AMP * 0.82);
+    const d4 = makePath(fillY, AMP);
+
+    cells.forEach(cell => {
+      cell.querySelectorAll('[data-batt-glow]').forEach(el => el.setAttribute('fill', fillColor));
+      cell.querySelectorAll('[data-batt-base-fill]').forEach(el => {
+        el.setAttribute('fill', fillColor);
+        el.setAttribute('y', 9 + fillY);
+        el.setAttribute('height', innerH - fillY + 4);
+      });
+      const setPath = (idx, d) => cell.querySelectorAll(`[data-batt-path="${idx}"]`).forEach(el => {
+        el.setAttribute('d', d); el.setAttribute('fill', fillColor);
+      });
+      setPath(1, d1); setPath(2, d2); setPath(3, d3); setPath(4, d4);
+    });
+
     requestAnimationFrame(tickBattery);
   }
-  if (cell) {
-    setBattery(battTarget);
+  if (cells.length) {
+    setBattery(battTarget, 12.6);
     tickBattery();
-    // expose to app.js
     window.__vnSetBattery = setBattery;
   }
 
@@ -166,7 +191,14 @@
   }
 
   function roundRect(ctx, x, y, w, h, r) {
+    if (w <= 0 || h <= 0) return;
+    r = Math.max(0, Math.min(r, Math.min(w, h) / 2));
     ctx.beginPath();
+    if (r <= 0) {
+      ctx.rect(x, y, w, h);
+      ctx.closePath();
+      return;
+    }
     ctx.moveTo(x + r, y);
     ctx.arcTo(x + w, y,     x + w, y + h, r);
     ctx.arcTo(x + w, y + h, x,     y + h, r);
@@ -205,6 +237,55 @@
     document.querySelectorAll('.tab-meta').forEach(m => m.hidden = m.dataset.tab !== id);
   }));
 
+  // ── Map popover (Saved Maps / SLAM save controls) ────────
+  const popTrigger = document.getElementById('map-pop-trigger');
+  const popover    = document.getElementById('map-popover');
+  const popLabel   = document.getElementById('current-map-name');
+
+  function setPopOpen(open) {
+    if (!popover || !popTrigger) return;
+    popover.hidden = !open;
+    popTrigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+  popTrigger?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setPopOpen(popover.hidden);
+  });
+  // close on outside click + Esc
+  document.addEventListener('click', (e) => {
+    if (popover?.hidden) return;
+    if (!popover.contains(e.target) && e.target !== popTrigger && !popTrigger?.contains(e.target)) {
+      setPopOpen(false);
+    }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && popover && !popover.hidden) setPopOpen(false);
+  });
+
+  // Keep the chip's label in sync with the active map / mode.
+  // App.js doesn't expose state directly, so we watch the DOM it already updates.
+  const navBtn  = document.getElementById('mode-btn-nav');
+  const slamBtn = document.getElementById('mode-btn-slam');
+  const slamCtrls = document.getElementById('slam-controls');
+  const carousel  = document.getElementById('map-carousel');
+  function refreshMapChipLabel() {
+    if (!popLabel) return;
+    if (slamBtn?.classList.contains('active')) {
+      popLabel.textContent = 'SLAM · live';
+    } else {
+      const active = carousel?.querySelector('.map-card.active .map-card-name');
+      popLabel.textContent = active?.textContent?.trim() || 'no map';
+    }
+  }
+  // Initial + observe changes app.js makes to mode buttons / carousel.
+  refreshMapChipLabel();
+  const mo = new MutationObserver(refreshMapChipLabel);
+  navBtn  && mo.observe(navBtn,  { attributes: true, attributeFilter: ['class'] });
+  slamBtn && mo.observe(slamBtn, { attributes: true, attributeFilter: ['class'] });
+  carousel && mo.observe(carousel, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+  // When SLAM controls become visible/hidden, refresh.
+  slamCtrls && mo.observe(slamCtrls, { attributes: true, attributeFilter: ['hidden'] });
+
   // ── RPLidar A1M8 polar scan visualizer ────────────────────
   const lc = document.getElementById('lidar-canvas');
   if (lc) {
@@ -215,7 +296,6 @@
     const rangesDraw = new Float32Array(NRAYS); // smoothed for render
     const intensity = new Float32Array(NRAYS);
     let MAX_R = 6;               // Variable range (zoomable)
-    let sweepDeg = 0;            // rotating sensor head
     let scanFrames = 0;
     let _hasRealData = false;
     let lastScanTime = 0;
@@ -247,8 +327,7 @@
         ranges.fill(0);
       }
 
-      scanFrames++; // Always increment for HUD/animation timing
-      sweepDeg = (sweepDeg + 6) % 360;
+      scanFrames++;
 
       const W = lc.width, H = lc.height;
       const cx = W / 2, cy = H / 2;
@@ -277,40 +356,21 @@
       lctx.lineWidth = 2 * ldpr;
       lctx.beginPath(); lctx.moveTo(cx, cy); lctx.lineTo(cx, cy - radius); lctx.stroke();
 
-      // Sweep beam
-      const sweepRad = (sweepDeg * Math.PI) / 180;
-      const grad = lctx.createConicGradient(sweepRad - Math.PI / 2, cx, cy);
-      grad.addColorStop(0,    'rgba(250,183,183,0.0)');
-      grad.addColorStop(0.04, 'rgba(250,183,183,0.18)');
-      grad.addColorStop(0.10, 'rgba(250,183,183,0.0)');
-      grad.addColorStop(1,    'rgba(250,183,183,0.0)');
-      lctx.fillStyle = grad;
-      lctx.beginPath(); lctx.arc(cx, cy, radius, 0, Math.PI * 2); lctx.fill();
-
-      // Polygon hull (filled cone, soft)
-      lctx.beginPath();
-      let started = false;
+      // Smooth rendered ranges — snap on appearance so points don't animate from origin
       for (let i = 0; i < NRAYS; i++) {
-        // smooth rendered range
-        rangesDraw[i] += (ranges[i] - rangesDraw[i]) * 0.35;
-        const r = rangesDraw[i];
-        if (r <= 0) { started = false; continue; }
-        const a = (i / NRAYS) * Math.PI * 2 - Math.PI / 2; // 0deg = up
-        const x = cx + Math.cos(a) * r * pxPerM;
-        const y = cy + Math.sin(a) * r * pxPerM;
-        if (!started) { lctx.moveTo(x, y); started = true; }
-        else lctx.lineTo(x, y);
+        if (ranges[i] > 0 && rangesDraw[i] <= 0) {
+          rangesDraw[i] = ranges[i]; // instant appear
+        } else if (ranges[i] <= 0 && rangesDraw[i] > 0) {
+          rangesDraw[i] = 0;         // instant disappear
+        } else {
+          rangesDraw[i] += (ranges[i] - rangesDraw[i]) * 0.35;
+        }
       }
-      lctx.closePath();
-      lctx.fillStyle = 'rgba(250,183,183,0.04)';
-      lctx.fill();
-      lctx.strokeStyle = 'rgba(250,183,183,0.20)';
-      lctx.lineWidth = 1.2 * ldpr;
-      lctx.stroke();
 
       // Points
       let ptCount = 0, minR = Infinity, maxR = 0, obs = 0;
       let lastObsBin = -1;
+      const sz = 1 * ldpr;
       for (let i = 0; i < NRAYS; i++) {
         const r = rangesDraw[i];
         if (r <= 0) continue;
@@ -318,28 +378,18 @@
         const x = cx + Math.cos(a) * r * pxPerM;
         const y = cy + Math.sin(a) * r * pxPerM;
 
-        // Color by distance
         let col;
-        if (r < 1)      col = `rgba(255,91,80,${0.65 + intensity[i] * 0.35})`;
-        else if (r < 4) col = `rgba(250,183,183,${0.55 + intensity[i] * 0.4})`;
-        else            col = `rgba(255,255,255,${0.45 + intensity[i] * 0.4})`;
-
-        // Highlight currently swept ray
-        const sweepDelta = Math.abs(((i - sweepDeg) + NRAYS / 2 + NRAYS) % NRAYS - NRAYS / 2);
-        const sweepBoost = sweepDelta < 18 ? (1 - sweepDelta / 18) : 0;
-        const sz = (1.8 + 1.2 * sweepBoost) * ldpr; // Smaller points
+        if (r < 1)      col = `rgba(255,91,80,${0.70 + intensity[i] * 0.30})`;
+        else if (r < 4) col = `rgba(250,183,183,${0.60 + intensity[i] * 0.35})`;
+        else            col = `rgba(255,255,255,${0.50 + intensity[i] * 0.35})`;
 
         lctx.fillStyle = col;
         lctx.beginPath(); lctx.arc(x, y, sz, 0, Math.PI * 2); lctx.fill();
-        if (sweepBoost > 0.5) {
-          lctx.fillStyle = `rgba(255,255,255,${sweepBoost * 0.8})`;
-          lctx.beginPath(); lctx.arc(x, y, sz * 1.6, 0, Math.PI * 2); lctx.fill();
-        }
+
         ptCount++;
         if (r < minR) minR = r;
         if (r > maxR) maxR = r;
         if (r < 1.5) {
-          // count contiguous near clusters
           if (lastObsBin < 0 || (i - lastObsBin) > 6) obs++;
           lastObsBin = i;
         }
@@ -387,30 +437,4 @@
     };
   }
 
-  // ── Safety button wiring (purely visual until backend implements) ─
-  const estop  = document.getElementById('estop-btn');
-  const resume = document.getElementById('resume-btn');
-  const stopT  = document.getElementById('stop-btn-top');
-  function flashState(label) {
-    const t = document.getElementById('toast');
-    if (!t) return;
-    t.textContent = label;
-    t.style.borderColor = 'var(--vn-border-bright)';
-    t.classList.add('active');
-    setTimeout(() => t.classList.remove('active'), 1800);
-  }
-  estop?.addEventListener('click', () => {
-    flashState('E-STOP ENGAGED');
-    resume.disabled = false;
-    fetch('/api/estop', { method: 'POST' }).catch(()=>{});
-  });
-  resume?.addEventListener('click', () => {
-    flashState('MISSION RESUMED');
-    resume.disabled = true;
-    fetch('/api/resume', { method: 'POST' }).catch(()=>{});
-  });
-  stopT?.addEventListener('click', () => {
-    flashState('STOP — motion halted');
-    fetch('/api/navigate/cancel', { method: 'POST' }).catch(()=>{});
-  });
 })();

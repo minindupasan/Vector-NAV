@@ -1,0 +1,20 @@
+[Unit]
+Description=Vector Camera — IMX708 ROS2 node + WebRTC stream
+After=network.target nvargus-daemon.service
+Requires=nvargus-daemon.service
+
+[Service]
+Type=simple
+User=admin
+Group=admin
+Environment=EGL_PLATFORM=surfaceless
+Environment=HOME=/home/admin
+ExecStart=/home/admin/vector_nav/scripts/run_camera.sh
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

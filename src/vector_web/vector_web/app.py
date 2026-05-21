@@ -6,6 +6,8 @@ Handles Voice interaction, Telemetry, and Teleop Bridge.
 """
 
 import os
+import io
+import base64
 import ssl
 import asyncio
 import logging
@@ -17,23 +19,32 @@ import time
 from pathlib import Path
 from typing import Optional
 import numpy as np
+from PIL import Image
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+import httpx
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 import rclpy
+import rclpy.time
+import rclpy.duration
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
-from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
+from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy, HistoryPolicy
+from geometry_msgs.msg import PoseWithCovarianceStamped, Twist, Quaternion
+from nav_msgs.msg import OccupancyGrid
 from sensor_msgs.msg import LaserScan
+import tf2_ros
 from std_msgs.msg import String, Float32MultiArray, Float32, Bool
 from vector_interfaces.msg import RobotStats, SttResult, SystemStats, BatteryStats
 from vector_interfaces.srv import (
-    DeleteLocation, GetLocations, NavigateToLocation, SetLocation, RenameLocation
+    DeleteLocation, GetLocations, NavigateToLocation, SetLocation, RenameLocation,
+    SetMode, GetMode, SaveMap, ListMaps,
 )
+from nav2_msgs.srv import SetInitialPose as SetInitialPoseSrv
 
 from .audio_utils import pcm_to_wav
 
@@ -66,6 +77,21 @@ class RenameLocationRequest(BaseModel):
 class AudioConfigRequest(BaseModel):
     volume: Optional[float] = None
     target: Optional[str] = None  # 'robot' or 'browser'
+
+class ModeRequest(BaseModel):
+    mode: str           # 'nav' | 'slam'
+    map: Optional[str] = None  # map stem for nav mode
+
+class SaveMapRequest(BaseModel):
+    name: str
+
+class RenameMapRequest(BaseModel):
+    new_name: str
+
+# ── Maps directory (read-only views still served by the web layer) ───────────
+
+MAPS_DIR = Path(os.path.expanduser('~')) / 'vector_nav' / 'maps'
+
 
 # ── ROS2 Bridge Node ─────────────────────────────────────────────────────────
 
@@ -113,13 +139,31 @@ class UnifiedBridgeNode(Node):
         self.create_subscription(String, '/tts/input', self._on_tts_input, 10, callback_group=cb)
         self.create_subscription(Float32MultiArray, '/tts/audio/stream', self._on_tts_audio, 10, callback_group=cb)
         self.create_subscription(LaserScan, '/scan', self._on_scan, 10, callback_group=cb)
-        
+        map_qos = QoSProfile(
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            reliability=ReliabilityPolicy.RELIABLE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+        self.create_subscription(OccupancyGrid, '/map', self._on_map, map_qos, callback_group=cb)
+
+        # TF buffer for robot pose in map frame
+        self._tf_buffer = tf2_ros.Buffer()
+        self._tf_listener = tf2_ros.TransformListener(self._tf_buffer, self)
+        self._latest_map_msg: Optional[OccupancyGrid] = None
+        self._map_lock = threading.Lock()
+
         # Services
         self._svc_navigate = self.create_client(NavigateToLocation, '/navigate_to_location', callback_group=cb)
         self._svc_set_loc   = self.create_client(SetLocation, '/set_location', callback_group=cb)
         self._svc_get_locs  = self.create_client(GetLocations, '/get_locations', callback_group=cb)
         self._svc_del_loc   = self.create_client(DeleteLocation, '/delete_location', callback_group=cb)
         self._svc_rename_loc = self.create_client(RenameLocation, '/rename_location', callback_group=cb)
+        self._svc_set_mode  = self.create_client(SetMode, '/mode_manager/set_mode', callback_group=cb)
+        self._svc_get_mode  = self.create_client(GetMode, '/mode_manager/get_mode', callback_group=cb)
+        self._svc_save_map  = self.create_client(SaveMap, '/map_manager/save_map', callback_group=cb)
+        self._svc_list_maps = self.create_client(ListMaps, '/map_manager/list_maps', callback_group=cb)
+        self._svc_set_initial_pose = self.create_client(SetInitialPoseSrv, '/set_initial_pose', callback_group=cb)
 
         # Teleop Watchdog
         self._target_twist = Twist()
@@ -221,6 +265,61 @@ class UnifiedBridgeNode(Node):
             self._loop
         )
         
+    def _on_map(self, msg: OccupancyGrid):
+        with self._map_lock:
+            self._latest_map_msg = msg
+        payload = self._encode_map(msg)
+        if payload:
+            asyncio.run_coroutine_threadsafe(self._broadcast(payload), self._loop)
+
+    def _encode_map(self, msg: OccupancyGrid) -> Optional[dict]:
+        try:
+            w, h = msg.info.width, msg.info.height
+            res = msg.info.resolution
+            ox = msg.info.origin.position.x
+            oy = msg.info.origin.position.y
+
+            arr = np.array(msg.data, dtype=np.int8)
+            rgba = np.zeros((len(arr), 4), dtype=np.uint8)
+            free     = arr == 0
+            occupied = arr > 0
+            unknown  = ~(free | occupied)
+            rgba[free]     = [230, 232, 235, 255]  # light warm white
+            rgba[occupied] = [ 22,  26,  40, 255]  # dark navy
+            rgba[unknown]  = [ 48,  52,  68, 255]  # muted slate, fully opaque
+
+            grid = rgba.reshape((h, w, 4))
+            grid = np.flipud(grid)
+
+            img = Image.fromarray(grid, mode='RGBA')
+            buf = io.BytesIO()
+            img.save(buf, format='PNG', compress_level=1)
+            b64 = base64.b64encode(buf.getvalue()).decode('ascii')
+
+            return {
+                'type': 'slam_map',
+                'img': b64,
+                'width': w,
+                'height': h,
+                'resolution': res,
+                'origin_x': ox,
+                'origin_y': oy,
+            }
+        except Exception as e:
+            logger.warning(f'Map encode error: {e}')
+            return None
+
+    async def send_map_to_client(self, ws: WebSocket):
+        with self._map_lock:
+            msg = self._latest_map_msg
+        if msg:
+            payload = self._encode_map(msg)
+            if payload:
+                try:
+                    await ws.send_json(payload)
+                except Exception:
+                    pass
+
     def _on_stt(self, msg: SttResult):
         asyncio.run_coroutine_threadsafe(
             self._broadcast_voice({'type': 'stt', 'text': msg.text, 'confidence': msg.confidence}),
@@ -275,10 +374,15 @@ class UnifiedBridgeNode(Node):
             try: await ws.send_bytes(data)
             except: pass
 
-    def call_srv(self, client, req):
+    def call_srv(self, client, req, timeout_sec=5.0):
         if not client.wait_for_service(timeout_sec=2.0): return None
         future = client.call_async(req)
-        rclpy.spin_until_future_complete(self, future, timeout_sec=5.0)
+        import time
+        deadline = time.monotonic() + timeout_sec
+        while not future.done():
+            if time.monotonic() > deadline:
+                return None
+            time.sleep(0.05)
         return future.result()
 
 # ── App ──────────────────────────────────────────────────────────────────────
@@ -304,9 +408,26 @@ async def startup():
     
     logger.info('Web bridge ready')
 
+CAMERA_WEBRTC_URL = os.environ.get('CAMERA_WEBRTC_URL', 'https://localhost:8443')
+
 @app.get('/')
 async def index():
     return FileResponse(str(STATIC_DIR / 'index.html'))
+
+@app.post('/camera/offer')
+async def camera_offer(request: Request):
+    body = await request.body()
+    async with httpx.AsyncClient(verify=False) as client:
+        try:
+            resp = await client.post(
+                f'{CAMERA_WEBRTC_URL}/offer',
+                content=body,
+                headers={'Content-Type': 'application/json'},
+                timeout=10.0,
+            )
+            return Response(content=resp.content, media_type='application/json', status_code=resp.status_code)
+        except httpx.ConnectError:
+            return JSONResponse({'error': 'camera service unavailable'}, status_code=503)
 
 # ── API Endpoints (Proxied to ROS2) ──────────────────────────────────────────
 
@@ -341,6 +462,50 @@ async def rename_location(body: RenameLocationRequest):
     req.new_name = body.new_name
     res = bridge.call_srv(bridge._svc_rename_loc, req)
     return JSONResponse({'success': res.success if res else False})
+
+@app.post('/api/locations/{name}/set_pose')
+async def set_pose_from_location(name: str):
+    """Tell AMCL the robot is at the saved location (pose estimation / relocalization)."""
+    locs_req = GetLocations.Request()
+    locs_res = bridge.call_srv(bridge._svc_get_locs, locs_req)
+    if not locs_res or name not in locs_res.names:
+        return JSONResponse({'success': False, 'error': f"Location '{name}' not found"}, status_code=404)
+
+    idx = list(locs_res.names).index(name)
+    x   = locs_res.xs[idx]
+    y   = locs_res.ys[idx]
+    yaw = locs_res.yaws[idx]
+
+    half = yaw / 2.0
+    qz = math.sin(half)
+    qw = math.cos(half)
+
+    req = SetInitialPoseSrv.Request()
+    req.pose.header.frame_id = 'map'
+    req.pose.pose.pose.position.x = x
+    req.pose.pose.pose.position.y = y
+    req.pose.pose.pose.position.z = 0.0
+    req.pose.pose.pose.orientation.x = 0.0
+    req.pose.pose.pose.orientation.y = 0.0
+    req.pose.pose.pose.orientation.z = qz
+    req.pose.pose.pose.orientation.w = qw
+    # Moderate covariance — AMCL will refine from scan
+    cov = [0.0] * 36
+    cov[0]  = 0.25   # x
+    cov[7]  = 0.25   # y
+    cov[35] = 0.0685 # yaw (~15 deg std)
+    req.pose.pose.covariance = cov
+
+    loop = asyncio.get_event_loop()
+    res = await loop.run_in_executor(None, lambda: bridge.call_srv(bridge._svc_set_initial_pose, req, timeout_sec=5.0))
+    if res is None:
+        return JSONResponse({'success': False, 'error': 'set_initial_pose service unavailable'}, status_code=503)
+    logger.info(f'Set initial pose to location "{name}" x={x:.3f} y={y:.3f} yaw={yaw:.3f}')
+    
+    bridge._latest_stats['pose'] = {'x': float(x), 'y': float(y), 'yaw': float(yaw)}
+    asyncio.run_coroutine_threadsafe(bridge._broadcast(bridge._latest_stats), bridge._loop)
+
+    return JSONResponse({'success': True})
 
 @app.post('/api/navigate')
 async def navigate(body: NavigateRequest):
@@ -378,6 +543,113 @@ async def set_audio_config(body: AudioConfigRequest):
         'volume': bridge._speaker_volume,
         'target': bridge._speaker_target,
     })
+
+@app.get('/api/mode')
+async def get_mode():
+    if bridge is None:
+        return JSONResponse({'mode': 'unknown', 'map': None, 'maps': []})
+    loop = asyncio.get_event_loop()
+    mode_res = await loop.run_in_executor(None, lambda: bridge.call_srv(bridge._svc_get_mode, GetMode.Request()))
+    list_res = await loop.run_in_executor(None, lambda: bridge.call_srv(bridge._svc_list_maps, ListMaps.Request()))
+    mode = mode_res.mode if mode_res else 'unknown'
+    cur_map = (mode_res.map or None) if mode_res else None
+    maps = list(list_res.maps) if list_res else []
+    return JSONResponse({'mode': mode, 'map': cur_map, 'maps': maps})
+
+@app.post('/api/mode')
+async def set_mode(body: ModeRequest):
+    if body.mode not in ('nav', 'slam'):
+        return JSONResponse({'success': False, 'error': 'mode must be nav or slam'}, status_code=400)
+    if bridge is None:
+        return JSONResponse({'success': False, 'error': 'bridge not ready'}, status_code=503)
+
+    req = SetMode.Request()
+    req.mode = body.mode
+    req.map = body.map or ''
+    loop = asyncio.get_event_loop()
+    res = await loop.run_in_executor(None, lambda: bridge.call_srv(bridge._svc_set_mode, req, timeout_sec=60.0))
+    if res is None:
+        return JSONResponse({'success': False, 'error': 'mode_manager unavailable'}, status_code=503)
+    if not res.success:
+        return JSONResponse({'success': False, 'error': res.message}, status_code=400)
+    logger.info(f'Mode → {res.mode}' + (f' map={res.map}' if res.map else ''))
+    # Clear stale cached map so clients show "waiting" until the new map publishes
+    with bridge._map_lock:
+        bridge._latest_map_msg = None
+    return JSONResponse({'success': True, 'mode': res.mode, 'map': (res.map or None)})
+
+@app.get('/api/maps/{name}/image')
+async def map_image(name: str):
+    if '/' in name or '..' in name:
+        return JSONResponse({'error': 'invalid'}, status_code=400)
+    pgm_path = MAPS_DIR / f'{name}.pgm'
+    if not pgm_path.exists():
+        return JSONResponse({'error': 'not found'}, status_code=404)
+    try:
+        img = Image.open(str(pgm_path)).convert('L')
+        buf = io.BytesIO()
+        img.save(buf, format='PNG', compress_level=1)
+        return Response(content=buf.getvalue(), media_type='image/png')
+    except Exception as e:
+        return JSONResponse({'error': str(e)}, status_code=500)
+
+@app.get('/api/maps')
+async def list_maps():
+    if bridge is None:
+        return JSONResponse({'maps': []})
+    loop = asyncio.get_event_loop()
+    res = await loop.run_in_executor(None, lambda: bridge.call_srv(bridge._svc_list_maps, ListMaps.Request()))
+    if res is None:
+        return JSONResponse({'maps': []})
+    return JSONResponse({'maps': [{'name': n} for n in res.maps]})
+
+@app.post('/api/maps/save')
+async def save_map(body: SaveMapRequest):
+    if bridge is None:
+        return JSONResponse({'success': False, 'error': 'bridge not ready'}, status_code=503)
+    req = SaveMap.Request()
+    req.name = body.name.strip()
+    loop = asyncio.get_event_loop()
+    res = await loop.run_in_executor(None, lambda: bridge.call_srv(bridge._svc_save_map, req, timeout_sec=30.0))
+    if res is None:
+        return JSONResponse({'success': False, 'error': 'map_manager unavailable'}, status_code=503)
+    if not res.success:
+        logger.error(f'save_map failed: {res.message}')
+        return JSONResponse({'success': False, 'error': res.message}, status_code=500)
+    logger.info(f'Map saved: {res.path}')
+    return JSONResponse({'success': True, 'name': req.name, 'path': res.path})
+
+@app.delete('/api/maps/{name}')
+async def delete_map(name: str):
+    if '/' in name or '..' in name:
+        return JSONResponse({'error': 'invalid name'}, status_code=400)
+    deleted = []
+    for ext in ('.pgm', '.yaml'):
+        p = MAPS_DIR / f'{name}{ext}'
+        if p.exists():
+            p.unlink()
+            deleted.append(str(p))
+    if not deleted:
+        return JSONResponse({'error': 'not found'}, status_code=404)
+    logger.info(f'Deleted map: {name}')
+    return JSONResponse({'success': True, 'name': name})
+
+@app.patch('/api/maps/{name}/rename')
+async def rename_map(name: str, body: RenameMapRequest):
+    new_name = body.new_name.strip()
+    if '/' in name or '..' in name or '/' in new_name or '..' in new_name or not new_name:
+        return JSONResponse({'error': 'invalid name'}, status_code=400)
+    if not (MAPS_DIR / f'{name}.pgm').exists():
+        return JSONResponse({'error': 'not found'}, status_code=404)
+    if (MAPS_DIR / f'{new_name}.pgm').exists():
+        return JSONResponse({'error': 'name already exists'}, status_code=409)
+    for ext in ('.pgm', '.yaml'):
+        src = MAPS_DIR / f'{name}{ext}'
+        dst = MAPS_DIR / f'{new_name}{ext}'
+        if src.exists():
+            src.rename(dst)
+    logger.info(f'Renamed map: {name} -> {new_name}')
+    return JSONResponse({'success': True, 'old_name': name, 'new_name': new_name})
 
 @app.post('/api/navigate/cancel')
 async def cancel_nav():
@@ -423,6 +695,7 @@ async def control_ws(websocket: WebSocket):
     with bridge._ws_lock: bridge._ws_clients.add(websocket)
     try:
         await websocket.send_json(bridge._latest_stats)
+        await bridge.send_map_to_client(websocket)
         while True:
             raw = await websocket.receive_text()
             msg = json.loads(raw)
@@ -436,6 +709,8 @@ async def control_ws(websocket: WebSocket):
             elif mtype == 'stop':
                 logger.debug("Teleop: STOP")
                 bridge.stop_robot()
+            elif mtype == 'get_map':
+                await bridge.send_map_to_client(websocket)
     except WebSocketDisconnect: pass
     finally:
         with bridge._ws_lock: bridge._ws_clients.discard(websocket)

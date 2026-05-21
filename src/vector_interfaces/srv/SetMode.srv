@@ -1,0 +1,7 @@
+string mode
+string map
+---
+bool success
+string message
+string mode
+string map
