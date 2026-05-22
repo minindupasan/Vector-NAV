@@ -1,5 +1,5 @@
 """
-Voice pipeline orchestrator — loads STT, RAG, LLM, and TTS engines
+Voice pipeline orchestrator — loads STT, LLM, and TTS engines
 and wires them together for the web UI.
 
 No ROS2 dependencies. Engines are imported directly via sys.path,
@@ -15,12 +15,11 @@ from pathlib import Path
 
 # Make source packages importable without installing
 _SRC = Path(__file__).resolve().parent.parent.parent  # src/
-for pkg in ('vector_rag', 'vector_llm', 'vector_tts', 'vector_stt'):
+for pkg in ('vector_llm', 'vector_tts', 'vector_stt'):
     pkg_path = str(_SRC / pkg)
     if pkg_path not in sys.path:
         sys.path.insert(0, pkg_path)
 
-from vector_rag.rag_engine import RAGEngine
 from vector_llm.llm_engine import LLMEngine
 from faster_whisper import WhisperModel
 
@@ -85,7 +84,6 @@ class VoicePipeline:
         tts_speed: float = 1.0,
         tts_engine_dir: str = '/home/admin/models/kokoro_trt',
         use_trt: bool = True,
-        rag_top_k: int = 3,
     ):
         self.ws_url = ws_url
         self.stt_model = stt_model
@@ -93,11 +91,9 @@ class VoicePipeline:
         self.tts_speed = tts_speed
         self.tts_engine_dir = tts_engine_dir
         self.use_trt = use_trt
-        self.rag_top_k = rag_top_k
 
         self.whisper = None
         self.llm = None
-        self.rag = None
         self.tts = None
         self.tts_pipeline = None
         self.sample_rate = 24000
@@ -115,11 +111,6 @@ class VoicePipeline:
             self.stt_model, device='cpu', compute_type='int8'
         )
         logger.info('Whisper ready')
-
-        # RAG
-        logger.info('Loading RAG engine...')
-        self.rag = RAGEngine(top_k=self.rag_top_k)
-        self.rag.load()
 
         # LLM
         tools = []
@@ -201,7 +192,7 @@ class VoicePipeline:
 
     def process(self, audio_pcm: np.ndarray, on_tts_chunk=None, on_stt=None) -> dict:
         """
-        Full pipeline: STT → RAG → LLM (streaming) → TTS per sentence.
+        Full pipeline: STT → LLM (streaming) → TTS per sentence.
 
         on_stt(text: str, confidence: float) is called as soon as STT
         completes, so the UI can render the user message before LLM/TTS.
@@ -236,11 +227,7 @@ class VoicePipeline:
         return self._run_llm(text, 1.0, on_tts_chunk)
 
     def _run_llm(self, text: str, confidence: float, on_tts_chunk):
-        # 2) RAG retrieval
-        results = self.rag.retrieve(text)
-        context = self.rag.format_context(results)
-
-        # 3) LLM streaming with per-sentence TTS
+        # LLM streaming with per-sentence TTS
         def on_sentence(sentence: str):
             if not sentence.strip():
                 return
@@ -293,7 +280,7 @@ class VoicePipeline:
 
         logger.info(f'Querying LLM: "{text}"')
         result = self.llm.chat_stream(
-            text, context=context, on_chunk=on_sentence
+            text, context='', on_chunk=on_sentence
         )
         logger.info(f'LLM response complete: {result.get("type", "text")}')
 

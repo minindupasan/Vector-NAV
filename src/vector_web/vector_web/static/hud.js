@@ -226,7 +226,6 @@
     rafId = active ? requestAnimationFrame(tick) : null;
     // Read source DOM
     const vEl  = document.getElementById('stat-vel');
-    const hEl  = document.getElementById('stat-heading');
     const aEl  = document.getElementById('stat-ang');
     const pxEl = document.getElementById('pose-x');
     const pyEl = document.getElementById('pose-y');
@@ -237,7 +236,7 @@
     const angBarEl = document.getElementById('ang-bar');
 
     if (vEl  && hudVel)     hudVel.textContent     = vEl.textContent;
-    if (hEl  && hudHeading) hudHeading.textContent = Math.round(parseFloat(hEl.textContent) || 0).toString().padStart(3, '0');
+    if (pthEl && hudHeading) hudHeading.textContent = Math.round(parseFloat(pthEl.textContent) || 0).toString().padStart(3, '0');
     if (pxEl && hudPoseX)   hudPoseX.textContent   = pxEl.textContent;
     if (pyEl && hudPoseY)   hudPoseY.textContent   = pyEl.textContent;
     if (pthEl&& hudPoseTh)  hudPoseTh.textContent  = pthEl.textContent;

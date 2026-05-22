@@ -157,7 +157,7 @@ class LLMEngine:
 
     def chat(self, user_text: str, context: str = "") -> dict:
         """
-        Send a user message to NanoLLM, optionally augmented with RAG context.
+        Send a user message to NanoLLM with optional context.
 
         Returns one of:
           {'type': 'text',      'content': str}
@@ -370,11 +370,10 @@ class LLMEngine:
 
 def _build_prompt(user_text: str, context: str) -> str:
     if context and context.strip():
-        # Truncate context to ~500 chars to keep prompt short for faster inference
         ctx = context.strip()
-        if len(ctx) > 500:
-            ctx = ctx[:500].rsplit(' ', 1)[0] + '...'
-        return f"Context:\n{ctx}\n\nUser: {user_text}"
+        if len(ctx) > 300:
+            ctx = ctx[:300].rsplit(' ', 1)[0] + '...'
+        return f"Use this information to answer: {ctx}\n\nQuestion: {user_text}"
     return user_text
 
 

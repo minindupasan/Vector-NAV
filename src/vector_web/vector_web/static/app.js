@@ -959,6 +959,8 @@ addLog('SYS', 'Console online');
         if (_img) draw();
     }
 
+    let _xform = null;  // last canvas↔map transform
+
     function draw() {
         if (!_img || !_meta) return;
         const [w, h] = getSize();
@@ -977,6 +979,7 @@ addLog('SYS', 'Console online');
         const scale = Math.min(cw / mw, ch / mh);
         const dx = (cw - mw * scale) / 2;
         const dy = (ch - mh * scale) / 2;
+        _xform = { dx, dy, scale, mh, resolution, origin_x, origin_y };
 
         // Dark background for unknown/empty areas outside map bounds
         ctx.fillStyle = '#10121a';
@@ -1015,11 +1018,59 @@ addLog('SYS', 'Console online');
         }
     }
 
+    let _preview = null;  // {px, py, yaw} canvas coords + map yaw
+
+    function drawWithPreview() {
+        draw();
+        if (!_preview || !_xform) return;
+        const { px, py, yaw, color } = _preview;
+        const c = color || '#ffd166';
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(-yaw);
+        ctx.strokeStyle = c;
+        ctx.lineWidth = 3;
+        ctx.shadowColor = c;
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(40, 0);
+        ctx.stroke();
+        ctx.fillStyle = c;
+        ctx.beginPath();
+        ctx.moveTo(48, 0);
+        ctx.lineTo(38, -6);
+        ctx.lineTo(38, 6);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+        ctx.beginPath();
+        ctx.arc(px, py, 5, 0, Math.PI * 2);
+        ctx.fillStyle = c;
+        ctx.shadowColor = c;
+        ctx.shadowBlur = 10;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+    }
+
     window.__vnMap = {
         updatePose(x, y, yaw) {
             _pose = { x, y, yaw };
-            if (_img) draw();
+            if (_img) (_preview ? drawWithPreview() : draw());
         },
+        canvasToMap(px, py) {
+            if (!_xform) return null;
+            const { dx, dy, scale, mh, resolution, origin_x, origin_y } = _xform;
+            const mx = (px - dx) * resolution / scale + origin_x;
+            const my = (mh - (py - dy) / scale) * resolution + origin_y;
+            return { x: mx, y: my };
+        },
+        setPosePreview(px, py, yaw, color) {
+            _preview = (px == null) ? null : { px, py, yaw, color };
+            if (_img) drawWithPreview();
+        },
+        getCanvas() { return canvas; },
+        hasMap() { return !!_img && !!_xform; },
         resize() { resize(); draw(); },
         update(msg) {
             if (noData) noData.hidden = true;
@@ -1358,6 +1409,97 @@ document.getElementById('map-refresh-btn')?.addEventListener('click', () => {
         bridgeWs.send(JSON.stringify({ type: 'get_map' }));
     }
 });
+
+// ── RViz-style click+drag modes (pose estimate & 2D goal) ────────────────────
+(function () {
+    const modes = [
+        { btnId: 'map-setpose-btn', endpoint: '/api/set_pose', color: '#ffd166', label: 'Pose' },
+        { btnId: 'map-setgoal-btn', endpoint: '/api/set_goal', color: '#34c759', label: 'Goal' },
+    ].map(m => ({ ...m, btn: document.getElementById(m.btnId) })).filter(m => m.btn);
+    if (!modes.length) return;
+
+    let activeMode = null;
+    let dragStart = null;
+    let mapStart = null;
+
+    function setActive(mode) {
+        if (activeMode && activeMode !== mode) activeMode.btn.classList.remove('is-active');
+        activeMode = mode;
+        const canvas = window.__vnMap?.getCanvas?.();
+        if (mode) {
+            mode.btn.classList.add('is-active');
+            if (canvas) canvas.style.cursor = 'crosshair';
+        } else {
+            if (canvas) canvas.style.cursor = '';
+            dragStart = null;
+            mapStart = null;
+            window.__vnMap?.setPosePreview?.(null);
+        }
+    }
+
+    function localCanvasPoint(evt, canvas) {
+        const rect = canvas.getBoundingClientRect();
+        return {
+            px: (evt.clientX - rect.left) * (canvas.width  / rect.width),
+            py: (evt.clientY - rect.top)  * (canvas.height / rect.height),
+        };
+    }
+
+    function onPointerDown(evt) {
+        if (!activeMode) return;
+        const canvas = window.__vnMap?.getCanvas?.();
+        if (!canvas || !window.__vnMap.hasMap()) { showToast('Map not loaded', false); return; }
+        evt.preventDefault();
+        const { px, py } = localCanvasPoint(evt, canvas);
+        dragStart = { px, py };
+        mapStart = window.__vnMap.canvasToMap(px, py);
+        canvas.setPointerCapture(evt.pointerId);
+        window.__vnMap.setPosePreview(px, py, 0, activeMode.color);
+    }
+
+    function onPointerMove(evt) {
+        if (!activeMode || !dragStart) return;
+        const canvas = window.__vnMap.getCanvas();
+        const { px, py } = localCanvasPoint(evt, canvas);
+        const yaw = Math.atan2(-(py - dragStart.py), px - dragStart.px);
+        window.__vnMap.setPosePreview(dragStart.px, dragStart.py, yaw, activeMode.color);
+    }
+
+    function onPointerUp(evt) {
+        if (!activeMode || !dragStart || !mapStart) { dragStart = null; return; }
+        const canvas = window.__vnMap.getCanvas();
+        const { px, py } = localCanvasPoint(evt, canvas);
+        const dpx = px - dragStart.px, dpy = py - dragStart.py;
+        const yaw = Math.hypot(dpx, dpy) > 6 ? Math.atan2(-dpy, dpx) : 0;
+        const x = mapStart.x, y = mapStart.y;
+        const mode = activeMode;
+        setActive(null);
+        fetch(`${apiBase}${mode.endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ x, y, yaw })
+        })
+            .then(r => r.json())
+            .then(res => {
+                if (res.success) showToast(`${mode.label} set @ ${x.toFixed(2)}, ${y.toFixed(2)} ${(yaw * 180 / Math.PI).toFixed(0)}°`, true);
+                else showToast(res.error || `Failed to set ${mode.label.toLowerCase()}`, false);
+            })
+            .catch(() => showToast(`Failed to set ${mode.label.toLowerCase()}`, false));
+    }
+
+    modes.forEach(mode => mode.btn.addEventListener('click', () => setActive(activeMode === mode ? null : mode)));
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && activeMode) setActive(null); });
+
+    const wireCanvas = () => {
+        const canvas = window.__vnMap?.getCanvas?.();
+        if (!canvas) { setTimeout(wireCanvas, 200); return; }
+        canvas.addEventListener('pointerdown', onPointerDown);
+        canvas.addEventListener('pointermove', onPointerMove);
+        canvas.addEventListener('pointerup',   onPointerUp);
+        canvas.addEventListener('pointercancel', () => { dragStart = null; window.__vnMap.setPosePreview(null); });
+    };
+    wireCanvas();
+})();
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 connectVoice();

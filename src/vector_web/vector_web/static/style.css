@@ -29,6 +29,7 @@ html, body {
     height: 100dvh; width: 100%;
     display: grid;
     grid-template-rows: auto 1fr auto;
+    overflow: hidden;
 }
 
 /* ── Top bar ──────────────────────────────────────────────────── */
@@ -210,14 +211,14 @@ html, body {
 /* ── Workspace grid ───────────────────────────────────────────── */
 .workspace {
     display: grid;
-    grid-template-columns: minmax(320px, 0.9fr) minmax(500px, 2.2fr) minmax(280px, 0.8fr);
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 2.2fr) minmax(0, 0.8fr);
     gap: var(--vn-space-4);
     padding: var(--vn-space-4);
     overflow: hidden;
     min-height: 0;
 }
-.col { display: flex; flex-direction: column; gap: var(--vn-space-4); min-height: 0; overflow: hidden; }
-.col-info { overflow-y: auto; }
+.col { display: flex; flex-direction: column; gap: var(--vn-space-4); min-height: 0; min-width: 0; overflow: hidden; }
+.col-info { overflow: hidden auto; scrollbar-width: thin; scrollbar-color: var(--vn-border) transparent; }
 .col-mid { min-height: 0; }
 
 /* ── Card (shadcn) ────────────────────────────────────────────── */
@@ -228,7 +229,7 @@ html, body {
     padding: var(--vn-space-5);
     box-shadow: var(--vn-shadow-card);
     display: flex; flex-direction: column; gap: var(--vn-space-4);
-    min-height: 0;
+    min-height: 0; min-width: 0; overflow: hidden;
 }
 .card-flex { flex: 1; }
 .card-map  { flex: 2.6; min-height: 560px; } /* Primary monitoring surface */
@@ -711,6 +712,33 @@ html, body {
     color: var(--vn-fg-muted);
 }
 .map-pop-trigger[aria-expanded="true"] .chev { transform: rotate(-90deg); color: var(--vn-fg); }
+/* Icon-only action buttons (refresh, set-pose, set-goal) — beefier square chips */
+.map-icon-btn {
+    width: 44px; height: 44px;
+    padding: 0; gap: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 12px;
+    transition: border-color var(--vn-dur-base) var(--vn-ease-std),
+                background var(--vn-dur-base) var(--vn-ease-std),
+                transform var(--vn-dur-base) var(--vn-ease-std),
+                box-shadow var(--vn-dur-base) var(--vn-ease-std);
+}
+.map-icon-btn .ico { width: 20px; height: 20px; color: var(--vn-brand); transition: color var(--vn-dur-base) var(--vn-ease-std); }
+.map-icon-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(0,0,0,0.45); }
+.map-icon-btn:active { transform: translateY(0); }
+
+#map-setpose-btn.is-active {
+    border-color: #ffd166;
+    background: rgba(255,209,102,0.14);
+    box-shadow: 0 0 0 1px rgba(255,209,102,0.5), 0 0 18px rgba(255,209,102,0.32);
+}
+#map-setpose-btn.is-active .ico { color: #ffd166; }
+#map-setgoal-btn.is-active {
+    border-color: #34c759;
+    background: rgba(52,199,89,0.14);
+    box-shadow: 0 0 0 1px rgba(52,199,89,0.5), 0 0 18px rgba(52,199,89,0.32);
+}
+#map-setgoal-btn.is-active .ico { color: #34c759; }
 
 .map-popover {
     position: absolute; top: calc(100% + 8px); right: 0;
@@ -921,7 +949,7 @@ html, body {
 .save-row input:focus { border-color: var(--vn-fg-dim); box-shadow: 0 0 0 3px rgba(255,255,255,0.06); }
 .save-row input::placeholder { color: var(--vn-fg-muted); }
 
-.locations-list { display: flex; flex-direction: column; gap: 6px; }
+.locations-list { display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--vn-border) transparent; }
 .loc-row {
     display: grid;
     grid-template-columns: auto 1fr auto auto auto auto;
@@ -1055,7 +1083,7 @@ html, body {
 /* Tighten 3-col layout on small desktops / iPad Pro 12.9 landscape */
 @media (max-width: 1366px) {
     .workspace {
-        grid-template-columns: minmax(320px, 1fr) minmax(380px, 1.25fr) minmax(320px, 1fr);
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) minmax(0, 1fr);
         gap: var(--vn-space-3);
         padding: var(--vn-space-3);
     }
@@ -1077,7 +1105,7 @@ html, body {
 /* iPad Pro 11" / iPad Air landscape (1025–1194) — keep 3 cols, compact heights */
 @media (max-width: 1194px) and (min-width: 1025px) {
     .workspace {
-        grid-template-columns: 240px minmax(0, 1fr) 220px;
+        grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 0.7fr);
         gap: var(--vn-space-3);
         padding: var(--vn-space-3);
     }
@@ -1091,27 +1119,25 @@ html, body {
 
 /* iPad portrait + iPad mini landscape (≤1024): 2-col [chat | map], info below as row */
 @media (max-width: 1024px) {
-    .app-shell { height: auto; min-height: 100dvh; overflow: visible; }
-    html, body { overflow: auto; overscroll-behavior: none; }
+    .app-shell { height: 100dvh; overflow: hidden; }
+    html, body { overflow: hidden; }
     .workspace {
         grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
-        grid-template-rows: auto auto;
-        overflow: visible;
+        grid-template-rows: 1fr auto;
+        overflow: auto;
         gap: var(--vn-space-3);
         padding: var(--vn-space-3);
     }
-    .col { overflow: visible; min-height: 0; }
+    .col { overflow: hidden; min-height: 0; }
     .col-chat { grid-column: 1; grid-row: 1; }
     .col-mid  { grid-column: 2; grid-row: 1; }
     .col-info {
-        grid-column: 1 / -1; grid-row: 2; overflow: visible;
+        grid-column: 1 / -1; grid-row: 2; overflow: hidden;
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: var(--vn-space-3);
     }
     .col-info .card { flex: none; }
-    .col-info .card:first-child .tele-grid { grid-template-columns: repeat(4, 1fr); }
-    .col-info .card:first-child .tele-wide { grid-column: span 4; }
     .card-flex .chat-container { min-height: 220px; max-height: 320px; }
     .card-map { min-height: 360px; }
     .card-log .log-list { max-height: 180px; }
@@ -1138,8 +1164,7 @@ html, body {
     .safety-cluster { justify-content: stretch; }
     .safety-cluster .btn { flex: 1; justify-content: center; }
     .brand-mark { height: 22px; }
-    .col-info .card:first-child .tele-grid { grid-template-columns: 1fr 1fr; }
-    .col-info .card:first-child .tele-wide { grid-column: span 2; }
+    .col-info { grid-template-columns: 1fr 1fr; }
     .dock { grid-template-columns: 1fr; gap: 8px; padding: 10px var(--vn-space-3); }
     .dock-status, .dock-state { justify-content: center; }
     .mic-wrap { order: -1; }
@@ -1154,16 +1179,14 @@ html, body {
     .col-chat { grid-column: 1; grid-row: 1; }
     .col-mid  { grid-column: 1; grid-row: 2; }
     .col-info { grid-column: 1; grid-row: 3; grid-template-columns: 1fr; }
-    .col-info .card:first-child .tele-grid { grid-template-columns: 1fr 1fr; }
-    .col-info .card:first-child .tele-wide { grid-column: span 2; }
 }
 
 /* Phone-sized — single column, hide non-essential meta */
 @media (max-width: 640px) {
     .card { padding: var(--vn-space-3); }
     .card-meta .text-mono { display: none; }
-    .col-info .card:first-child .tele-grid { grid-template-columns: 1fr; }
-    .col-info .card:first-child .tele-wide { grid-column: span 1; }
+    .tele-grid { grid-template-columns: 1fr; }
+    .tele-wide { grid-column: span 1; }
     .pose-readout { flex-wrap: wrap; gap: var(--vn-space-3); }
     .scan-overlay, .map-overlay { grid-template-columns: 1fr 1fr; }
 }

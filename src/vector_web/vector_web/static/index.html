@@ -568,8 +568,14 @@
                             </div>
 
                             <!-- Floating top-right: Refresh + Maps popover trigger -->
-                            <div class="map-floater map-floater-tr" style="display:flex;gap:6px;align-items:center;">
-                                <button class="map-pop-trigger" id="map-refresh-btn" title="Refresh map" style="padding:0 8px;min-width:32px;justify-content:center;">
+                            <div class="map-floater map-floater-tr" style="display:flex;gap:8px;align-items:center;">
+                                <button class="map-pop-trigger map-icon-btn" id="map-setpose-btn" title="2D Pose Estimate (click + drag for yaw)">
+                                    <svg class="ico"><use href="#i-target"/></svg>
+                                </button>
+                                <button class="map-pop-trigger map-icon-btn" id="map-setgoal-btn" title="2D Goal Pose (click + drag for yaw)">
+                                    <svg class="ico"><use href="#i-pin"/></svg>
+                                </button>
+                                <button class="map-pop-trigger map-icon-btn" id="map-refresh-btn" title="Refresh map">
                                     <svg class="ico" id="map-refresh-ico"><use href="#i-refresh"/></svg>
                                 </button>
                                 <button class="map-pop-trigger" id="map-pop-trigger" aria-expanded="false">
@@ -644,31 +650,6 @@
                             <div class="tele-num"><span id="stat-vel">0.00</span><em>m/s</em></div>
                             <div class="tele-bar"><div class="tele-bar-fill" id="vel-bar" style="width: 0%;"></div></div>
                         </div>
-                        <div class="tele tele-compass-cell">
-                            <div class="tele-label"><svg class="ico"><use href="#i-compass"/></svg>Heading</div>
-                            <div class="tele-compass-row">
-                                <div class="tele-num"><span id="stat-heading">000.0</span><em>°</em></div>
-                                <div class="tele-compass" aria-hidden="true">
-                                    <span class="cmp-mark cmp-n">N</span>
-                                    <span class="cmp-mark cmp-e">E</span>
-                                    <span class="cmp-mark cmp-s">S</span>
-                                    <span class="cmp-mark cmp-w">W</span>
-                                    <span class="cmp-tick t0"></span>
-                                    <span class="cmp-tick t45"></span>
-                                    <span class="cmp-tick t90"></span>
-                                    <span class="cmp-tick t135"></span>
-                                    <span class="cmp-tick t180"></span>
-                                    <span class="cmp-tick t225"></span>
-                                    <span class="cmp-tick t270"></span>
-                                    <span class="cmp-tick t315"></span>
-                                    <div class="tele-compass-needle" id="heading-needle">
-                                        <span class="needle-n"></span>
-                                        <span class="needle-s"></span>
-                                    </div>
-                                    <span class="cmp-hub"></span>
-                                </div>
-                            </div>
-                        </div>
                         <div class="tele">
                             <div class="tele-label"><svg class="ico"><use href="#i-activity"/></svg>Angular</div>
                             <div class="tele-num"><span id="stat-ang">0.00</span><em>rad/s</em></div>
@@ -704,6 +685,7 @@
                         <svg class="ico"><use href="#i-octagon"/></svg><span>HALT NAVIGATION</span>
                     </button>
                 </div>
+
             </section>
 
         </div>

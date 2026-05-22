@@ -34,7 +34,7 @@ from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy, HistoryPolicy
-from geometry_msgs.msg import PoseWithCovarianceStamped, Twist, Quaternion
+from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist, Quaternion
 from nav_msgs.msg import OccupancyGrid
 from sensor_msgs.msg import LaserScan
 import tf2_ros
@@ -128,6 +128,7 @@ class UnifiedBridgeNode(Node):
         self._interrupt_pub = self.create_publisher(Bool, '/llm/interrupt', 10)
         self._tts_pub = self.create_publisher(String, '/tts/input', 10)
         self._target_pub = self.create_publisher(String, '/tts/target', 10)
+        self._goal_pose_pub = self.create_publisher(PoseStamped, '/goal_pose', 10)
         
         # Subscribers
         self.create_subscription(RobotStats, '/robot_stats', self._on_stats, 10, callback_group=cb)
@@ -462,6 +463,70 @@ async def rename_location(body: RenameLocationRequest):
     req.new_name = body.new_name
     res = bridge.call_srv(bridge._svc_rename_loc, req)
     return JSONResponse({'success': res.success if res else False})
+
+@app.post('/api/set_pose')
+async def set_pose_raw(request: Request):
+    """RViz-style pose estimation. Accepts {x, y, yaw} in map frame."""
+    try:
+        body = await request.json()
+        x = float(body['x'])
+        y = float(body['y'])
+        yaw = float(body['yaw'])
+    except (KeyError, ValueError, TypeError):
+        return JSONResponse({'success': False, 'error': 'expected {x, y, yaw} numbers'}, status_code=400)
+
+    half = yaw / 2.0
+    qz = math.sin(half)
+    qw = math.cos(half)
+
+    req = SetInitialPoseSrv.Request()
+    req.pose.header.frame_id = 'map'
+    req.pose.pose.pose.position.x = x
+    req.pose.pose.pose.position.y = y
+    req.pose.pose.pose.position.z = 0.0
+    req.pose.pose.pose.orientation.x = 0.0
+    req.pose.pose.pose.orientation.y = 0.0
+    req.pose.pose.pose.orientation.z = qz
+    req.pose.pose.pose.orientation.w = qw
+    cov = [0.0] * 36
+    cov[0]  = 0.25
+    cov[7]  = 0.25
+    cov[35] = 0.0685
+    req.pose.pose.covariance = cov
+
+    loop = asyncio.get_event_loop()
+    res = await loop.run_in_executor(None, lambda: bridge.call_srv(bridge._svc_set_initial_pose, req, timeout_sec=5.0))
+    if res is None:
+        return JSONResponse({'success': False, 'error': 'set_initial_pose service unavailable'}, status_code=503)
+    logger.info(f'Set initial pose (manual) x={x:.3f} y={y:.3f} yaw={yaw:.3f}')
+
+    bridge._latest_stats['pose'] = {'x': x, 'y': y, 'yaw': yaw}
+    asyncio.run_coroutine_threadsafe(bridge._broadcast(bridge._latest_stats), bridge._loop)
+    return JSONResponse({'success': True})
+
+@app.post('/api/set_goal')
+async def set_goal(request: Request):
+    """RViz-style 2D goal. Accepts {x, y, yaw} in map frame and publishes to /goal_pose."""
+    try:
+        body = await request.json()
+        x = float(body['x'])
+        y = float(body['y'])
+        yaw = float(body['yaw'])
+    except (KeyError, ValueError, TypeError):
+        return JSONResponse({'success': False, 'error': 'expected {x, y, yaw} numbers'}, status_code=400)
+
+    half = yaw / 2.0
+    msg = PoseStamped()
+    msg.header.frame_id = 'map'
+    msg.header.stamp = bridge.get_clock().now().to_msg()
+    msg.pose.position.x = x
+    msg.pose.position.y = y
+    msg.pose.position.z = 0.0
+    msg.pose.orientation.z = math.sin(half)
+    msg.pose.orientation.w = math.cos(half)
+    bridge._goal_pose_pub.publish(msg)
+    logger.info(f'Published goal pose x={x:.3f} y={y:.3f} yaw={yaw:.3f}')
+    return JSONResponse({'success': True})
 
 @app.post('/api/locations/{name}/set_pose')
 async def set_pose_from_location(name: str):

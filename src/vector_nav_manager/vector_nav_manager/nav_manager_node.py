@@ -194,7 +194,7 @@ class NavManagerNode(Node):
         except json.JSONDecodeError:
             args = {}
 
-        if msg.name == 'navigate_to':
+        if msg.name in ('navigate', 'navigate_to'):
             location = args.get('location', '').strip()
             if location:
                 threading.Thread(
