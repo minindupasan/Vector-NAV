@@ -1,5 +1,6 @@
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy, HistoryPolicy
 from vector_interfaces.msg import SystemStats, BatteryStats
 import psutil
 import socket
@@ -21,11 +22,19 @@ _VOLT_TABLE = [12.60, 12.30, 12.12, 11.94, 11.76, 11.55, 11.31, 11.10, 10.80, 10
 _PCT_TABLE  = [100,   90,    80,    70,    60,    50,    40,    30,    20,    10,    5,   0  ]
 DIVIDER_RATIO = 4.397
 
+_LATCH_QOS = QoSProfile(
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+    reliability=ReliabilityPolicy.RELIABLE,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=1,
+)
+
+
 class SystemStatsNode(Node):
     def __init__(self):
         super().__init__('system_stats_node')
-        self.stats_pub = self.create_publisher(SystemStats, '/system_stats/pi', 10)
-        self.batt_pub = self.create_publisher(BatteryStats, '/battery', 10)
+        self.stats_pub = self.create_publisher(SystemStats, '/system_stats/pi', _LATCH_QOS)
+        self.batt_pub = self.create_publisher(BatteryStats, '/battery', _LATCH_QOS)
         self.timer = self.create_timer(2.0, self.timer_callback)
         
         self.has_battery_sensor = False

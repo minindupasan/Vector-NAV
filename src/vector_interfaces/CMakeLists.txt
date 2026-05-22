@@ -11,7 +11,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/RagQuery.msg"
   "msg/RagContext.msg"
   "msg/LLMToolCall.msg"
-  "msg/RobotStats.msg"
+  "msg/RobotStatus.msg"
   "msg/SystemStats.msg"
   "msg/BatteryStats.msg"
   "srv/NavigateToLocation.srv"

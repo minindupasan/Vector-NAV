@@ -2,9 +2,11 @@
 # Vector Nav — Supervisor launcher.
 #
 # Starts the manager.launch.py from vector_nav_manager, which brings up:
-#   - nav_manager_node     (locations + Nav2 goal bridge)
-#   - mode_manager_node    (NAV ↔ SLAM lifecycle; spawns hw_nav / hw_slam)
-#   - map_manager_node     (save / list maps)
+#   - nav_manager_node       (locations + Nav2 goal bridge, /nav/state)
+#   - mode_manager_node      (NAV ↔ SLAM lifecycle; spawns hw_nav / hw_slam)
+#   - map_manager_node       (save / list maps)
+#   - status_manager_node    (aggregates all status → /robot_status @ 2 Hz)
+#   - jetson_stats_node      (Jetson CPU/GPU/temp → /system_stats/jetson)
 #
 # mode_manager_node persists state to ~/.vector_nav/state.yaml and spawns the
 # appropriate hw_nav.launch.py / hw_slam.launch.py child on startup. All output

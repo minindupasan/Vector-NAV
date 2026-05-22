@@ -1,10 +1,11 @@
 """
 VECTOR NAV — Supervisor launch.
 
-Brings up the three long-lived manager nodes:
-  - nav_manager_node     (locations + Nav2 goal bridge)
+Brings up the long-lived manager nodes:
+  - nav_manager_node     (locations + Nav2 goal bridge, /nav/state)
   - mode_manager_node    (NAV ↔ SLAM lifecycle, spawns hw_nav / hw_slam)
   - map_manager_node     (save_map / list_maps services)
+  - status_manager_node  (aggregates all status → /robot_status)
 
 The hw_nav / hw_slam launches are *not* started here — mode_manager_node
 spawns the appropriate one based on persisted state at startup.
@@ -42,4 +43,20 @@ def generate_launch_description():
         emulate_tty=True,
     )
 
-    return LaunchDescription([nav_manager, mode_manager, map_manager])
+    status_manager = Node(
+        package='vector_status_manager',
+        executable='status_manager_node',
+        name='status_manager_node',
+        output='screen',
+        emulate_tty=True,
+    )
+
+    jetson_stats = Node(
+        package='vector_status_manager',
+        executable='jetson_stats_node',
+        name='jetson_stats_node',
+        output='screen',
+        emulate_tty=True,
+    )
+
+    return LaunchDescription([nav_manager, mode_manager, map_manager, status_manager, jetson_stats])

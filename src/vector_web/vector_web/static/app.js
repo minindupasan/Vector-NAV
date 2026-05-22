@@ -169,6 +169,7 @@ const driveVel = document.getElementById('drive-stat-vel');
 
 // Stats Refs
 const statNav  = document.getElementById('stat-nav');
+const statLoc  = document.getElementById('stat-loc');
 const statVel  = document.getElementById('stat-vel');
 const statAng  = document.getElementById('stat-ang');
 const statHead = document.getElementById('stat-heading');
@@ -415,12 +416,21 @@ function updateStats(msg) {
     }
 
     if (msg.navigation_status !== undefined) {
-        const nav = msg.navigation_status || 'Idle';
-        if (statNav) statNav.textContent = nav;
+        const nav = msg.navigation_status || 'unknown';
+        if (statNav) {
+            statNav.textContent = nav;
+            statNav.className = 'badge badge-' + (
+                ['navigating','paused','stopped','halted'].includes(nav) ? nav : 'soft'
+            );
+        }
         if (nav !== _lastNav) {
             _lastNav = nav;
             addLog('NAV', nav);
         }
+    }
+
+    if (msg.current_location !== undefined && statLoc) {
+        statLoc.textContent = msg.current_location || 'unknown';
     }
 
     if (typeof msg.linear_velocity === 'number') {

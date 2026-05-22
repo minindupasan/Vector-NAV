@@ -99,12 +99,18 @@ class STTNode(Node):
         self._stt_pub = self.create_publisher(SttResult, '/stt/text', 10)
         self._tts_pub = self.create_publisher(String, '/tts/input', 10)
         self._interrupt_pub = self.create_publisher(Bool, '/llm/interrupt', 10)
+        self._state_pub = self.create_publisher(String, '/stt/state', 10)
+        self._stt_state = 'idle'
 
         # ── Subscribers ───────────────────────────────────────────────────
         cb = ReentrantCallbackGroup()
         self.create_subscription(
             Bool, '/tts/speaking', self._on_tts_speaking, 10, callback_group=cb
         )
+
+        # Republish state once per second so late subscribers see it.
+        self.create_timer(1.0, lambda: self._state_pub.publish(String(data=self._stt_state)),
+                          callback_group=cb)
 
         # ── Audio capture thread ──────────────────────────────────────────
         self._thread = threading.Thread(target=self._listen_loop, daemon=True)
@@ -119,6 +125,11 @@ class STTNode(Node):
 
     def _on_tts_speaking(self, msg: Bool) -> None:
         self._tts_speaking = msg.data
+
+    def _emit_stt_state(self, name: str) -> None:
+        if name != self._stt_state:
+            self._stt_state = name
+            self._state_pub.publish(String(data=name))
 
     # ── Main loop ────────────────────────────────────────────────────────
 
@@ -143,6 +154,7 @@ class STTNode(Node):
 
     def _wait_for_wake(self, chunk_size: int) -> None:
         """Run openwakeword continuously until wake word is detected."""
+        self._emit_stt_state('listening')
         while self._running and not self._awake:
 
             try:
@@ -185,23 +197,28 @@ class STTNode(Node):
 
     def _capture_command(self, chunk_size: int) -> None:
         """Record command audio, transcribe with Whisper, publish result."""
+        self._emit_stt_state('listening')
         # Wait for speech onset (with timeout for follow-up mode)
         audio = self._wait_for_speech(chunk_size)
         if audio is None:
             self.get_logger().info('No command heard — going back to sleep.')
             self._awake = False
+            self._emit_stt_state('idle')
             return
 
         # Record until silence
         audio = self._record_until_silence(audio, chunk_size)
         if audio is None:
+            self._emit_stt_state('idle')
             return
 
         duration = len(audio) / self._sr
         if duration < self._min_dur:
+            self._emit_stt_state('idle')
             return
 
         # Transcribe with Whisper
+        self._emit_stt_state('transcribing')
         t0 = time.monotonic()
         text, confidence, language = self._transcribe(audio)
         elapsed = (time.monotonic() - t0) * 1000
@@ -210,11 +227,13 @@ class STTNode(Node):
         )
 
         if not text or not text.strip():
+            self._emit_stt_state('idle')
             return
 
         text_clean = text.strip()
         self.get_logger().info(f'Command: "{text_clean}" (conf={confidence:.2f})')
         self._publish(text_clean, confidence, language)
+        self._emit_stt_state('idle')
         # Stay awake for follow-ups (times out via listen_timeout)
         self.get_logger().info('Still listening for follow-up...')
 

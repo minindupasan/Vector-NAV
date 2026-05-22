@@ -58,12 +58,4 @@ def generate_launch_description():
             }],
         ),
 
-        # ── System Stats node — Jetson metrics (CPU, GPU, Temp) ───────────────
-        Node(
-            package='vector_bridge',
-            executable='jetson_stats_node',
-            name='jetson_stats_node',
-            output='screen',
-        ),
-
     ])

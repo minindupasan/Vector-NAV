@@ -30,17 +30,17 @@ from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy, HistoryPolicy
 
 from builtin_interfaces.msg import Duration  # noqa: F401 — kept for Nav2 goal stamping
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Quaternion, Twist
 from nav2_msgs.action import NavigateToPose
-from std_msgs.msg import Header
+from std_msgs.msg import Header, String
 
-from vector_interfaces.msg import LLMToolCall, RobotStats, SttResult
+from vector_interfaces.msg import LLMToolCall, SttResult
 from vector_interfaces.srv import DeleteLocation, GetLocations, NavigateToLocation, SetLocation, RenameLocation
 
 CURRENT_POSE_FILE = Path('/tmp/vector_current_pose.json')
-STATS_FILE = Path('/tmp/vector_robot_stats.json')
 
 
 def _find_config(filename: str) -> Path | None:
@@ -92,16 +92,31 @@ class NavManagerNode(Node):
         self._nav_client = ActionClient(self, NavigateToPose, '/navigate_to_pose')
         self._goal_handle = None
         self._nav_lock = threading.Lock()
+        self._active_goal: tuple | None = None   # (x, y, yaw) of in-flight goal
+        self._paused_goal: tuple | None = None   # cached goal across pause/resume
+        self._nav_state = 'idle'
 
         # ── Publishers ────────────────────────────────────────────────────────
-        self._stats_pub = self.create_publisher(RobotStats, '/robot_stats', 10)
         self._stt_pub = self.create_publisher(SttResult, '/stt/text', 10)
-        self.create_timer(1.0, self._publish_stats, callback_group=cb)
+        self._nav_state_pub = self.create_publisher(String, '/nav/state', 10)
+        self._nav_loc_pub = self.create_publisher(String, '/nav/current_location', 10)
+        self.create_timer(1.0, self._heartbeat, callback_group=cb)
+        # Emit initial state so late subscribers see it.
+        self._emit_nav_state('idle')
 
         # ── Subscriptions ─────────────────────────────────────────────────────
+        # AMCL publishes /amcl_pose with TRANSIENT_LOCAL durability and only on
+        # pose updates — match it so the last pose is delivered on startup
+        # (otherwise a stationary robot leaves us with no pose forever).
+        amcl_qos = QoSProfile(
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            reliability=ReliabilityPolicy.RELIABLE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
         self.create_subscription(
             PoseWithCovarianceStamped, '/amcl_pose',
-            self._on_amcl_pose, 10, callback_group=cb)
+            self._on_amcl_pose, amcl_qos, callback_group=cb)
         self.create_subscription(
             LLMToolCall, '/llm/tool_call',
             self._on_tool_call, 10, callback_group=cb)
@@ -144,49 +159,30 @@ class NavManagerNode(Node):
         except Exception as e:
             self.get_logger().warn(f'pose file write failed: {e}', once=True)
 
-    def _publish_stats(self) -> None:
-        msg = RobotStats()
-        
-        # Simulated battery values are removed to avoid clobbering real data from RPi.
-        msg.battery_voltage = 0.0
-        msg.battery_percentage = 0.0
+    def _heartbeat(self) -> None:
+        """Periodically republish nav state + nearest location for late subscribers."""
+        self._nav_state_pub.publish(String(data=self._nav_state))
+        self._nav_loc_pub.publish(String(data=self._nearest_location()))
 
-        with self._nav_lock:
-            if self._goal_handle is not None:
-                msg.navigation_status = 'Navigating'
-            else:
-                msg.navigation_status = 'Idle'
-        
-        # Find closest location name
-        msg.current_location = 'Unknown'
-        if self._current_pose:
-            x, y, _ = self._current_pose
-            min_dist = 0.5 # 0.5m threshold
-            with self._lock:
-                for name, loc in self._locations.items():
-                    dist = math.sqrt((x - loc['x'])**2 + (y - loc['y'])**2)
-                    if dist < min_dist:
-                        msg.current_location = name
-                        min_dist = dist
+    def _nearest_location(self) -> str:
+        if not self._current_pose:
+            return 'unknown'
+        x, y, _ = self._current_pose
+        nearest = 'unknown'
+        min_dist = 0.5  # metres
+        with self._lock:
+            for name, loc in self._locations.items():
+                dist = math.sqrt((x - loc['x']) ** 2 + (y - loc['y']) ** 2)
+                if dist < min_dist:
+                    nearest = name
+                    min_dist = dist
+        return nearest
 
-        msg.status_message = 'Robot System Ready'
-        msg.linear_velocity = round(self._current_cmd_vel[0], 3)
-        msg.angular_velocity = round(self._current_cmd_vel[1], 3)
-
-        self._stats_pub.publish(msg)
-
-        try:
-            STATS_FILE.write_text(json.dumps({
-                'battery_voltage': msg.battery_voltage,
-                'battery_percentage': msg.battery_percentage,
-                'navigation_status': msg.navigation_status,
-                'current_location': msg.current_location,
-                'status_message': msg.status_message,
-                'linear_velocity': msg.linear_velocity,
-                'angular_velocity': msg.angular_velocity,
-            }))
-        except Exception as e:
-            self.get_logger().warn(f'stats file write failed: {e}', once=True)
+    def _emit_nav_state(self, name: str) -> None:
+        if name != self._nav_state:
+            self.get_logger().info(f'nav state: {self._nav_state} → {name}')
+        self._nav_state = name
+        self._nav_state_pub.publish(String(data=name))
 
     def _on_tool_call(self, msg: LLMToolCall) -> None:
         try:
@@ -202,6 +198,10 @@ class NavManagerNode(Node):
                 ).start()
         elif msg.name == 'stop_navigation':
             self._cancel_nav()
+        elif msg.name == 'pause_navigation':
+            self._pause_nav()
+        elif msg.name == 'resume_navigation':
+            self._resume_nav()
         elif msg.name == 'get_location':
             if self._current_pose:
                 x, y, yaw = self._current_pose
@@ -332,6 +332,7 @@ class NavManagerNode(Node):
     def _send_goal(self, x: float, y: float, yaw: float) -> None:
         if not self._nav_client.wait_for_server(timeout_sec=5.0):
             self.get_logger().error('/navigate_to_pose action server not available')
+            self._emit_nav_state('halted')
             return
 
         goal = NavigateToPose.Goal()
@@ -347,6 +348,7 @@ class NavManagerNode(Node):
                     self._goal_handle.cancel_goal()
                 except Exception:
                     pass
+            self._active_goal = (x, y, yaw)
             future = self._nav_client.send_goal_async(goal)
             future.add_done_callback(self._on_goal_accepted)
 
@@ -354,21 +356,33 @@ class NavManagerNode(Node):
         handle = future.result()
         if not handle.accepted:
             self.get_logger().warn('Navigation goal rejected by Nav2')
+            with self._nav_lock:
+                self._active_goal = None
+            self._emit_nav_state('halted')
             return
         with self._nav_lock:
             self._goal_handle = handle
+        self._emit_nav_state('navigating')
         handle.get_result_async().add_done_callback(self._on_nav_done)
 
     def _on_nav_done(self, future) -> None:
         status = future.result().status
         with self._nav_lock:
             self._goal_handle = None
+            self._active_goal = None
         self.get_logger().info(f'Navigation complete, status={status}')
         if status == 4:  # SUCCEEDED
+            self._emit_nav_state('idle')
             msg = SttResult()
             msg.text = 'Navigated to the goal successfully.'
             msg.confidence = -1.0
             self._stt_pub.publish(msg)
+        else:
+            # Anything other than SUCCEEDED is treated as a failure/abort,
+            # *unless* the cancellation was driven by stop/pause (which already
+            # emitted 'stopped' / 'paused').
+            if self._nav_state not in ('stopped', 'paused'):
+                self._emit_nav_state('halted')
 
     def _cancel_nav(self) -> None:
         with self._nav_lock:
@@ -379,6 +393,34 @@ class NavManagerNode(Node):
                 except Exception as e:
                     self.get_logger().warn(f'Cancel error: {e}')
                 self._goal_handle = None
+            self._active_goal = None
+            self._paused_goal = None
+        self._emit_nav_state('stopped')
+
+    def _pause_nav(self) -> None:
+        with self._nav_lock:
+            if not self._goal_handle or not self._active_goal:
+                self.get_logger().info('pause_navigation: no active goal to pause')
+                return
+            self._paused_goal = self._active_goal
+            try:
+                self._goal_handle.cancel_goal()
+            except Exception as e:
+                self.get_logger().warn(f'Pause cancel error: {e}')
+            self._goal_handle = None
+            self._active_goal = None
+        self._emit_nav_state('paused')
+
+    def _resume_nav(self) -> None:
+        with self._nav_lock:
+            cached = self._paused_goal
+            self._paused_goal = None
+        if not cached:
+            self.get_logger().info('resume_navigation: nothing to resume')
+            return
+        self._emit_nav_state('resumed')
+        # _send_goal will transition to 'navigating' once Nav2 accepts the goal.
+        threading.Thread(target=self._send_goal, args=cached, daemon=True).start()
 
     # ── Persistence ───────────────────────────────────────────────────────────
 

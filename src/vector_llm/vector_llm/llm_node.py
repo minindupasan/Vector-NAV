@@ -60,6 +60,12 @@ class LLMNode(Node):
         # ── Publishers ────────────────────────────────────────────────────────
         self._tts_pub       = self.create_publisher(String,      '/tts/input',     10)
         self._tool_call_pub = self.create_publisher(LLMToolCall, '/llm/tool_call', 10)
+        self._state_pub     = self.create_publisher(String,      '/llm/state',     10)
+        self._llm_state = 'idle'
+
+        # Republish state once per second so late subscribers see it.
+        self.create_timer(1.0, lambda: self._state_pub.publish(String(data=self._llm_state)),
+                          callback_group=cb)
 
         # ── Subscribers ───────────────────────────────────────────────────────
         self.create_subscription(SttResult, '/stt/text',      self._on_stt,       10, callback_group=cb)
@@ -104,9 +110,15 @@ class LLMNode(Node):
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
+    def _emit_llm_state(self, name: str) -> None:
+        if name != self._llm_state:
+            self._llm_state = name
+            self._state_pub.publish(String(data=name))
+
     def _run_llm(self, text: str, t0: float) -> None:
         self._interrupted.clear()
         self._is_generating = True
+        self._emit_llm_state('thinking')
         try:
             chunk_count = 0
 
@@ -114,6 +126,8 @@ class LLMNode(Node):
                 nonlocal chunk_count
                 if self._interrupted.is_set():
                     return False
+                if chunk_count == 0:
+                    self._emit_llm_state('responding')
                 chunk_count += 1
                 self.get_logger().info(
                     f'[T+{(time.monotonic()-t0)*1000:.0f}ms] TTS chunk {chunk_count}: "{sentence}"'
@@ -130,10 +144,12 @@ class LLMNode(Node):
             self._tts_pub.publish(String(data='Sorry, I could not process that request.'))
             self._tts_pub.publish(String(data='[end]'))
             self._is_generating = False
+            self._emit_llm_state('idle')
             return
 
         self._tts_pub.publish(String(data='[end]'))
         self._is_generating = False
+        self._emit_llm_state('idle')
 
         if result['type'] == 'tool_call':
             out = LLMToolCall()

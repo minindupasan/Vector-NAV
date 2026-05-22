@@ -39,7 +39,7 @@ from nav_msgs.msg import OccupancyGrid
 from sensor_msgs.msg import LaserScan
 import tf2_ros
 from std_msgs.msg import String, Float32MultiArray, Float32, Bool
-from vector_interfaces.msg import RobotStats, SttResult, SystemStats, BatteryStats
+from vector_interfaces.msg import RobotStatus, SttResult
 from vector_interfaces.srv import (
     DeleteLocation, GetLocations, NavigateToLocation, SetLocation, RenameLocation,
     SetMode, GetMode, SaveMap, ListMaps,
@@ -110,12 +110,21 @@ class UnifiedBridgeNode(Node):
             'type': 'stats',
             'battery_voltage': 0.0,
             'battery_percentage': 0.0,
-            'navigation_status': 'Unknown',
-            'current_location': 'Unknown',
+            'navigation_status': 'unknown',
+            'tts_status': 'unknown',
+            'stt_status': 'unknown',
+            'llm_status': 'unknown',
+            'system_status': 'unknown',
+            'current_location': 'unknown',
             'status_message': 'Connecting...',
             'linear_velocity': 0.0,
             'angular_velocity': 0.0,
             'pose': {'x': 0.0, 'y': 0.0, 'yaw': 0.0},
+            'pi_cpu': 0.0,
+            'pi_temp': 0.0,
+            'jetson_cpu': 0.0,
+            'jetson_gpu': 0.0,
+            'jetson_temp': 0.0,
         }
         
         cb = ReentrantCallbackGroup()
@@ -131,11 +140,15 @@ class UnifiedBridgeNode(Node):
         self._goal_pose_pub = self.create_publisher(PoseStamped, '/goal_pose', 10)
         
         # Subscribers
-        self.create_subscription(RobotStats, '/robot_stats', self._on_stats, 10, callback_group=cb)
-        self.create_subscription(SystemStats, '/system_stats/pi', self._on_system_stats_pi, 10, callback_group=cb)
-        self.create_subscription(SystemStats, '/system_stats/jetson', self._on_system_stats_jetson, 10, callback_group=cb)
-        self.create_subscription(BatteryStats, '/battery', self._on_battery, 10, callback_group=cb)
-        self.create_subscription(PoseWithCovarianceStamped, '/amcl_pose', self._on_pose, 10, callback_group=cb)
+        self.create_subscription(RobotStatus, '/robot_status', self._on_status, 10, callback_group=cb)
+        # /amcl_pose uses TRANSIENT_LOCAL — match it so we get the last pose at startup.
+        amcl_qos = QoSProfile(
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            reliability=ReliabilityPolicy.RELIABLE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+        self.create_subscription(PoseWithCovarianceStamped, '/amcl_pose', self._on_pose, amcl_qos, callback_group=cb)
         self.create_subscription(SttResult, '/stt/text', self._on_stt, 10, callback_group=cb)
         self.create_subscription(String, '/tts/input', self._on_tts_input, 10, callback_group=cb)
         self.create_subscription(Float32MultiArray, '/tts/audio/stream', self._on_tts_audio, 10, callback_group=cb)
@@ -187,52 +200,24 @@ class UnifiedBridgeNode(Node):
         self._last_cmd_time = 0
         self._cmd_vel_pub.publish(self._target_twist)
 
-    def _on_stats(self, msg: RobotStats):
-        update_data = {
+    def _on_status(self, msg: RobotStatus):
+        self._latest_stats.update({
             'navigation_status': msg.navigation_status,
+            'tts_status': msg.tts_status,
+            'stt_status': msg.stt_status,
+            'llm_status': msg.llm_status,
+            'system_status': msg.system_status,
             'current_location': msg.current_location,
             'status_message': msg.status_message,
             'linear_velocity': round(msg.linear_velocity, 3),
             'angular_velocity': round(msg.angular_velocity, 3),
-        }
-        # Only update battery if it's non-zero (avoid clobbering real battery data with defaults)
-        if msg.battery_voltage > 0.01:
-            update_data['battery_voltage'] = round(msg.battery_voltage, 2)
-            update_data['battery_percentage'] = round(msg.battery_percentage, 1)
-            
-        self._latest_stats.update(update_data)
-        asyncio.run_coroutine_threadsafe(self._broadcast(self._latest_stats), self._loop)
-
-    def _on_system_stats_pi(self, msg: SystemStats):
-        # Update specific fields for Pi
-        self._latest_stats.update({
-            'pi_cpu': round(msg.cpu_usage, 1),
-            'pi_mem': round(msg.memory_usage, 1),
-            'pi_temp': round(msg.temperature, 1),
-            'pi_ip': msg.ip_address,
-        })
-        # logger.debug(f"RPi Stats: CPU={msg.cpu_usage}% TEMP={msg.temperature}C")
-        asyncio.run_coroutine_threadsafe(self._broadcast(self._latest_stats), self._loop)
-
-    def _on_battery(self, msg: BatteryStats):
-        # Update battery from dedicated message
-        self._latest_stats.update({
-            'battery_voltage': round(msg.voltage, 2),
-            'battery_percentage': round(msg.percentage, 1),
-        })
-        # logger.debug(f"Battery: {msg.voltage}V ({msg.percentage}%)")
-        asyncio.run_coroutine_threadsafe(self._broadcast(self._latest_stats), self._loop)
-
-    def _on_system_stats_jetson(self, msg: SystemStats):
-        # Update specific fields for Jetson
-        self._latest_stats.update({
-            'jetson_cpu': round(msg.cpu_usage, 1),
-            'jetson_gpu': round(msg.gpu_usage, 1),
-            'jetson_mem': round(msg.memory_usage, 1),
-            'jetson_mem_used': round(msg.memory_used_gb, 2),
-            'jetson_mem_total': round(msg.memory_total_gb, 2),
-            'jetson_temp': round(msg.temperature, 1),
-            'jetson_ip': msg.ip_address,
+            'battery_voltage': round(msg.battery_voltage, 2),
+            'battery_percentage': round(msg.battery_percentage, 1),
+            'pi_cpu': round(msg.pi_cpu_percent, 1),
+            'pi_temp': round(msg.pi_temp_c, 1),
+            'jetson_cpu': round(msg.jetson_cpu_percent, 1),
+            'jetson_gpu': round(msg.jetson_gpu_percent, 1),
+            'jetson_temp': round(msg.jetson_temp_c, 1),
         })
         asyncio.run_coroutine_threadsafe(self._broadcast(self._latest_stats), self._loop)
 

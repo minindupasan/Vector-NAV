@@ -1,7 +1,0 @@
-float32 battery_voltage
-float32 battery_percentage
-string navigation_status
-string current_location
-string status_message
-float32 linear_velocity
-float32 angular_velocity
