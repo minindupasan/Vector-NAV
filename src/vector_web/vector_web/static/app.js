@@ -142,6 +142,29 @@ let maxLinear = 0.50;
 let maxAngular = 1.00;
 let cmdInterval = null;
 
+// Keyboard drive state
+const keysDown = new Set();
+let keyLinear = 0.0;
+let keyAngular = 0.0;
+
+const DRIVE_KEY_CODES = new Set(['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowLeft','ArrowDown','ArrowRight']);
+
+function updateKeyVelocity() {
+    const fwd = keysDown.has('KeyW') || keysDown.has('ArrowUp');
+    const bwd = keysDown.has('KeyS') || keysDown.has('ArrowDown');
+    const lft = keysDown.has('KeyA') || keysDown.has('ArrowLeft');
+    const rgt = keysDown.has('KeyD') || keysDown.has('ArrowRight');
+    keyLinear  = (fwd ? maxLinear  : 0) - (bwd ? maxLinear  : 0);
+    keyAngular = (lft ? maxAngular : 0) - (rgt ? maxAngular : 0);
+}
+
+function updateWASDIndicator() {
+    const ids = { KeyW:'key-w', KeyA:'key-a', KeyS:'key-s', KeyD:'key-d' };
+    for (const [code, id] of Object.entries(ids)) {
+        document.getElementById(id)?.classList.toggle('active', keysDown.has(code));
+    }
+}
+
 const PRESETS = {
     ECO:     { linear: 0.30, angular: 1.00 },
     CLASSIC: { linear: 0.60, angular: 1.80 },
@@ -705,8 +728,11 @@ function initJoysticks() {
 
     if (cmdInterval) clearInterval(cmdInterval);
     cmdInterval = setInterval(() => {
-        if (joyLinearActive || joyAngularActive) {
-            sendWS({ type: 'cmd_vel', linear: joyLinear, angular: joyAngular });
+        const keyActive = keysDown.size > 0;
+        if (joyLinearActive || joyAngularActive || keyActive) {
+            const lin = Math.max(-maxLinear,  Math.min(maxLinear,  joyLinear  + keyLinear));
+            const ang = Math.max(-maxAngular, Math.min(maxAngular, joyAngular + keyAngular));
+            sendWS({ type: 'cmd_vel', linear: lin, angular: ang });
         }
     }, 50);
 }
@@ -746,6 +772,9 @@ closeDriveBtn.onclick = () => {
     if (linearManager) { linearManager.destroy(); linearManager = null; }
     if (angularManager) { angularManager.destroy(); angularManager = null; }
     if (cmdInterval) { clearInterval(cmdInterval); cmdInterval = null; }
+    keysDown.clear();
+    keyLinear = 0; keyAngular = 0;
+    updateWASDIndicator();
 };
 
 maxSpeedSlider.oninput = () => {
@@ -771,10 +800,22 @@ if (chatInput) {
     };
 }
 
+function isDriveInputActive() {
+    return driveOverlay.classList.contains('active') &&
+           document.activeElement.tagName !== 'INPUT' &&
+           document.activeElement.tagName !== 'TEXTAREA';
+}
+
 window.addEventListener('keydown', (e) => {
     if (e.code === 'Space' && !e.repeat && document.activeElement.tagName !== 'INPUT') {
         e.preventDefault();
         if (!micBtn.disabled) startRecording();
+    }
+    if (DRIVE_KEY_CODES.has(e.code) && isDriveInputActive() && !e.repeat) {
+        e.preventDefault();
+        keysDown.add(e.code);
+        updateKeyVelocity();
+        updateWASDIndicator();
     }
 });
 
@@ -782,6 +823,14 @@ window.addEventListener('keyup', (e) => {
     if (e.code === 'Space' && document.activeElement.tagName !== 'INPUT') {
         e.preventDefault();
         stopRecording();
+    }
+    if (DRIVE_KEY_CODES.has(e.code)) {
+        keysDown.delete(e.code);
+        updateKeyVelocity();
+        updateWASDIndicator();
+        if (keysDown.size === 0 && !joyLinearActive && !joyAngularActive) {
+            sendWS({ type: 'stop' });
+        }
     }
 });
 

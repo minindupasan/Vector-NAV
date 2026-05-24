@@ -1560,6 +1560,7 @@ html, body {
 }
 .drive-overlay.active .hud-stick-l { animation: hud-stick-in 340ms cubic-bezier(0.22, 0.61, 0.36, 1) 460ms both; }
 .drive-overlay.active .hud-stick-r { animation: hud-stick-in 340ms cubic-bezier(0.22, 0.61, 0.36, 1) 500ms both; }
+.drive-overlay.active .hud-keys    { animation: hud-stick-in 340ms cubic-bezier(0.22, 0.61, 0.36, 1) 530ms both; }
 .drive-overlay.active .hud-ladder  { animation: hud-slide-r 340ms cubic-bezier(0.22, 0.61, 0.36, 1) 440ms both; }
 
 /* ── Camera background ─────────────────────────────────────────────── */
@@ -2067,6 +2068,47 @@ html, body {
 }
 .hud-stick-axis { color: var(--vn-fg-muted); text-transform: uppercase; letter-spacing: 0.05em; font-size: 9px; }
 .hud-stick-val { font-size: 11px; }
+
+/* ── WASD keyboard indicator ──────────────────────────────────────── */
+.hud-keys {
+    position: absolute;
+    bottom: 130px;
+    left: 50%; transform: translateX(-50%);
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    z-index: 3;
+    opacity: 0; pointer-events: none;
+    transition: opacity 200ms ease;
+}
+.drive-overlay.active .hud-keys { opacity: 1; }
+.hud-keys-row {
+    display: flex; gap: 4px;
+}
+.hud-key {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 32px; height: 32px;
+    font-family: var(--vn-font-mono); font-size: 12px; font-weight: 600;
+    color: var(--vn-fg-muted);
+    background: var(--hud-glass);
+    border: 1px solid var(--hud-stroke);
+    border-radius: 6px;
+    backdrop-filter: var(--hud-blur);
+    -webkit-backdrop-filter: var(--hud-blur);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06);
+    transition: background 100ms ease, color 100ms ease, box-shadow 100ms ease, transform 80ms ease;
+    user-select: none;
+}
+.hud-key.active {
+    color: var(--vn-fg);
+    background: rgba(255,255,255,0.15);
+    border-color: rgba(255,255,255,0.35);
+    box-shadow: 0 0 10px rgba(255,255,255,0.15), 0 2px 6px rgba(0,0,0,0.4);
+    transform: translateY(1px);
+}
+.hud-keys-label {
+    font-family: var(--vn-font-mono); font-size: 9px;
+    color: var(--vn-fg-muted); letter-spacing: 0.08em;
+    margin-top: 2px;
+}
 
 /* ── Bottom strip ─────────────────────────────────────────────────── */
 .hud-strip-bot {
