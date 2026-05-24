@@ -68,7 +68,7 @@ _SSH_BASE    = ['ssh', '-i', '/home/admin/.ssh/id_ed25519',
                 '-o', 'ConnectTimeout=5', f'admin@{PI_HOST}']
 JETSON_SERVICES = ['vector-web', 'vector-llm', 'vector-assistant',
                    'vector-navigation', 'vector-status']
-PI_SERVICES     = ['sllidar', 'camera', 'battery', 'shutdown', 'oled-display', 'vector-control']
+PI_SERVICES     = ['camera', 'battery', 'shutdown', 'oled-display', 'vector-control']
 
 
 async def _run_cmd(args: list, timeout: float = 10.0):
