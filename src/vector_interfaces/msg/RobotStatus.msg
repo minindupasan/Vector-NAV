@@ -22,9 +22,13 @@ float32 battery_percentage
 # Compute
 float32 pi_cpu_percent
 float32 pi_temp_c
+float32 pi_memory_usage
 float32 jetson_cpu_percent
 float32 jetson_gpu_percent
 float32 jetson_temp_c
+float32 jetson_memory_usage
+float32 jetson_memory_used_gb
+float32 jetson_memory_total_gb
 
 # Human-readable summary
 string status_message

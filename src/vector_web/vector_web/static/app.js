@@ -472,6 +472,7 @@ function updateStats(msg) {
     // Pi Metrics → drawer
     const _setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
     if (msg.pi_cpu  !== undefined) _setText('drawer-pi-cpu',  `${msg.pi_cpu.toFixed(0)}%`);
+    if (msg.pi_mem  !== undefined) _setText('drawer-pi-mem',  `${msg.pi_mem.toFixed(0)}%`);
     if (msg.pi_temp !== undefined) _setText('drawer-pi-temp', `${msg.pi_temp.toFixed(0)}°C`);
     if (msg.pi_ip   !== undefined) _setText('drawer-pi-ip',   msg.pi_ip);
     if (msg.battery_percentage !== undefined) _setText('drawer-pi-batt', `${msg.battery_percentage.toFixed(0)}%`);

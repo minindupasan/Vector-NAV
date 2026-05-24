@@ -72,9 +72,13 @@ class StatusManagerNode(Node):
         self._pose_yaw = 0.0
         self._pi_cpu = 0.0
         self._pi_temp = 0.0
+        self._pi_mem = 0.0
         self._jetson_cpu = 0.0
         self._jetson_gpu = 0.0
         self._jetson_temp = 0.0
+        self._jetson_mem = 0.0
+        self._jetson_mem_used_gb = 0.0
+        self._jetson_mem_total_gb = 0.0
 
         cb = ReentrantCallbackGroup()
 
@@ -143,12 +147,16 @@ class StatusManagerNode(Node):
         with self._lock:
             self._pi_cpu = float(msg.cpu_usage)
             self._pi_temp = float(msg.temperature)
+            self._pi_mem = float(msg.memory_usage)
 
     def _on_jetson_stats(self, msg: SystemStats) -> None:
         with self._lock:
             self._jetson_cpu = float(msg.cpu_usage)
             self._jetson_gpu = float(msg.gpu_usage)
             self._jetson_temp = float(msg.temperature)
+            self._jetson_mem = float(msg.memory_usage)
+            self._jetson_mem_used_gb = float(msg.memory_used_gb)
+            self._jetson_mem_total_gb = float(msg.memory_total_gb)
 
     def _on_pose(self, msg: PoseWithCovarianceStamped) -> None:
         p = msg.pose.pose
@@ -204,9 +212,13 @@ class StatusManagerNode(Node):
             msg.battery_percentage = round(self._battery_percentage, 1)
             msg.pi_cpu_percent = round(self._pi_cpu, 1)
             msg.pi_temp_c = round(self._pi_temp, 1)
+            msg.pi_memory_usage = round(self._pi_mem, 1)
             msg.jetson_cpu_percent = round(self._jetson_cpu, 1)
             msg.jetson_gpu_percent = round(self._jetson_gpu, 1)
             msg.jetson_temp_c = round(self._jetson_temp, 1)
+            msg.jetson_memory_usage = round(self._jetson_mem, 1)
+            msg.jetson_memory_used_gb = round(self._jetson_mem_used_gb, 2)
+            msg.jetson_memory_total_gb = round(self._jetson_mem_total_gb, 2)
             system_status, status_message = self._derive_system_status()
 
         msg.system_status = system_status
@@ -228,9 +240,13 @@ class StatusManagerNode(Node):
                 'battery_percentage': msg.battery_percentage,
                 'pi_cpu_percent': msg.pi_cpu_percent,
                 'pi_temp_c': msg.pi_temp_c,
+                'pi_memory_usage': msg.pi_memory_usage,
                 'jetson_cpu_percent': msg.jetson_cpu_percent,
                 'jetson_gpu_percent': msg.jetson_gpu_percent,
                 'jetson_temp_c': msg.jetson_temp_c,
+                'jetson_memory_usage': msg.jetson_memory_usage,
+                'jetson_memory_used_gb': msg.jetson_memory_used_gb,
+                'jetson_memory_total_gb': msg.jetson_memory_total_gb,
                 'status_message': msg.status_message,
             }))
         except Exception as e:

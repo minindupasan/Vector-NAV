@@ -242,9 +242,13 @@ class UnifiedBridgeNode(Node):
             'battery_percentage': round(msg.battery_percentage, 1),
             'pi_cpu': round(msg.pi_cpu_percent, 1),
             'pi_temp': round(msg.pi_temp_c, 1),
+            'pi_mem': round(msg.pi_memory_usage, 1),
             'jetson_cpu': round(msg.jetson_cpu_percent, 1),
             'jetson_gpu': round(msg.jetson_gpu_percent, 1),
             'jetson_temp': round(msg.jetson_temp_c, 1),
+            'jetson_mem': round(msg.jetson_memory_usage, 1),
+            'jetson_mem_used_gb': round(msg.jetson_memory_used_gb, 2),
+            'jetson_mem_total_gb': round(msg.jetson_memory_total_gb, 2),
         })
         asyncio.run_coroutine_threadsafe(self._broadcast(self._latest_stats), self._loop)
 
