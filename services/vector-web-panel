@@ -12,7 +12,5 @@ admin ALL=(ALL) NOPASSWD: \
     /usr/bin/systemctl stop vector-navigation.service, \
     /usr/bin/systemctl restart vector-status.service, \
     /usr/bin/systemctl stop vector-status.service, \
-    /usr/bin/systemctl restart sllidar.service, \
-    /usr/bin/systemctl stop sllidar.service, \
     /usr/sbin/poweroff, \
     /usr/sbin/reboot
