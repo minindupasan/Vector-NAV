@@ -285,6 +285,8 @@ function connectBridge() {
             if (window.__vnMap) window.__vnMap.update(msg);
             const resEl = document.getElementById('map-res');
             if (resEl && msg.resolution) resEl.textContent = (msg.resolution * 100).toFixed(1) + 'cm';
+        } else if (msg.type === 'nav_plan') {
+            if (window.__vnMap) window.__vnMap.updatePlan(msg.poses);
         }
     };
 }
@@ -1134,6 +1136,8 @@ addLog('SYS', 'Console online');
         ctx.fillRect(0, 0, cw, ch);
         ctx.drawImage(_img, dx, dy, mw * scale, mh * scale);
 
+        drawPlan();
+
         // Robot marker — fixed pixel size so it's always visible
         if (resolution > 0) {
             const pxPerMetre = 1 / resolution;
@@ -1164,6 +1168,28 @@ addLog('SYS', 'Console online');
             ctx.fill();
             ctx.shadowBlur = 0;
         }
+    }
+
+    let _plan = null;   // [{x, y}, ...] in map-world coords
+
+    function drawPlan() {
+        if (!_plan || _plan.length < 2 || !_xform) return;
+        const { dx, dy, scale, mh, resolution, origin_x, origin_y } = _xform;
+        const pxPerMetre = 1 / resolution;
+        ctx.save();
+        ctx.strokeStyle = '#39ff14';
+        ctx.lineWidth = 2;
+        ctx.shadowColor = '#39ff14';
+        ctx.shadowBlur = 4;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        for (let i = 0; i < _plan.length; i++) {
+            const cx = dx + (_plan[i].x - origin_x) * pxPerMetre * scale;
+            const cy = dy + (mh - (_plan[i].y - origin_y) * pxPerMetre) * scale;
+            if (i === 0) ctx.moveTo(cx, cy); else ctx.lineTo(cx, cy);
+        }
+        ctx.stroke();
+        ctx.restore();
     }
 
     let _preview = null;  // {px, py, yaw} canvas coords + map yaw
@@ -1217,6 +1243,10 @@ addLog('SYS', 'Console online');
             _preview = (px == null) ? null : { px, py, yaw, color };
             if (_img) drawWithPreview();
         },
+        updatePlan(poses) {
+            _plan = poses && poses.length ? poses : null;
+            if (_img) (_preview ? drawWithPreview() : draw());
+        },
         getCanvas() { return canvas; },
         hasMap() { return !!_img && !!_xform; },
         resize() { resize(); draw(); },
@@ -1240,7 +1270,7 @@ addLog('SYS', 'Console online');
             image.src = 'data:image/png;base64,' + msg.img;
         },
         clear() {
-            _img = null; _meta = null;
+            _img = null; _meta = null; _plan = null;
             if (_retryTimer) { clearInterval(_retryTimer); _retryTimer = null; }
             ctx.fillStyle = '#10121a';
             ctx.fillRect(0, 0, canvas.width, canvas.height);

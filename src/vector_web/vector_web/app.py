@@ -35,7 +35,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy, HistoryPolicy
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist, Quaternion
-from nav_msgs.msg import OccupancyGrid
+from nav_msgs.msg import OccupancyGrid, Path as NavPath
 from sensor_msgs.msg import LaserScan
 import tf2_ros
 from std_msgs.msg import String, Float32MultiArray, Float32, Bool
@@ -187,6 +187,7 @@ class UnifiedBridgeNode(Node):
             depth=1,
         )
         self.create_subscription(OccupancyGrid, '/map', self._on_map, map_qos, callback_group=cb)
+        self.create_subscription(NavPath, '/plan', self._on_plan, 10, callback_group=cb)
 
         # TF buffer for robot pose in map frame
         self._tf_buffer = tf2_ros.Buffer()
@@ -288,6 +289,16 @@ class UnifiedBridgeNode(Node):
         payload = self._encode_map(msg)
         if payload:
             asyncio.run_coroutine_threadsafe(self._broadcast(payload), self._loop)
+
+    def _on_plan(self, msg: NavPath):
+        poses = [
+            {'x': round(p.pose.position.x, 3), 'y': round(p.pose.position.y, 3)}
+            for p in msg.poses
+        ]
+        asyncio.run_coroutine_threadsafe(
+            self._broadcast({'type': 'nav_plan', 'poses': poses}),
+            self._loop
+        )
 
     def _encode_map(self, msg: OccupancyGrid) -> Optional[dict]:
         try:
