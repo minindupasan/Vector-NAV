@@ -20,4 +20,11 @@ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 export CYCLONEDDS_URI=file:///home/admin/vector_nav/config/cyclonedds.xml
 export HOME=/home/admin
 
+# Wait for enP8p1s0 to have an IP before starting ROS2 nodes.
+# Without this, mode_manager_node and map_manager_node fail at boot because
+# they import fewer modules and reach rclpy.init() before the interface is ready.
+echo "Waiting for enP8p1s0 to get an IP address..."
+timeout 30 bash -c 'until ip addr show enP8p1s0 2>/dev/null | grep -q "inet "; do sleep 0.5; done'
+echo "enP8p1s0 is ready, starting navigation stack."
+
 exec ros2 launch vector_nav_manager manager.launch.py

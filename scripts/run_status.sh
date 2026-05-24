@@ -15,4 +15,8 @@ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 export CYCLONEDDS_URI=file:///home/admin/vector_nav/config/cyclonedds.xml
 export HOME=/home/admin
 
+echo "Waiting for enP8p1s0 to get an IP address..."
+timeout 30 bash -c 'until ip addr show enP8p1s0 2>/dev/null | grep -q "inet "; do sleep 0.5; done'
+echo "enP8p1s0 is ready, starting status manager."
+
 exec ros2 launch vector_status_manager status_manager.launch.py
