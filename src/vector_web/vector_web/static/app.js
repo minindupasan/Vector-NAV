@@ -217,29 +217,13 @@ const locList = document.getElementById('locations-list');
 const stopNavBtn = document.getElementById('stop-nav-btn');
 const toast = document.getElementById('toast');
 
-// Modal Refs
-const pillJetson = document.getElementById('pill-jetson');
-const pillPi = document.getElementById('pill-pi');
-
-if (pillJetson) pillJetson.onclick = () => openModal('modal-jetson');
-if (pillPi) pillPi.onclick = () => openModal('modal-pi');
-
-function openModal(id) {
-    const modal = document.getElementById(id);
-    if (modal) modal.classList.add('active');
-}
-
-function closeModal(id) {
-    const modal = document.getElementById(id);
-    if (modal) modal.classList.remove('active');
-}
-
-// Close modals on overlay click
-window.onclick = (event) => {
-    if (event.target.classList.contains('modal-overlay')) {
-        event.target.classList.remove('active');
-    }
-};
+// ── System Drawer ─────────────────────────────────────────────────────────────
+const sysDrawerBtn     = document.getElementById('sys-drawer-btn');
+const sysDrawer        = document.getElementById('sys-drawer');
+const sysDrawerRefresh = document.getElementById('sys-drawer-refresh');
+let _drawerOpen   = false;
+let _drawerLoaded = false;
+let _pendingPower = null;
 
 // Spectrum is fully handled by effects.js (window.__vnSpectrum).
 
@@ -485,65 +469,19 @@ function updateStats(msg) {
         if (mapPoseEl) mapPoseEl.textContent = `${p.x >= 0 ? '+' : ''}${p.x.toFixed(2)}, ${p.y >= 0 ? '+' : ''}${p.y.toFixed(2)}`;
     }
 
-    // Pi Metrics
-    if (msg.pi_cpu !== undefined) {
-        const val = `${msg.pi_cpu.toFixed(0)}%`;
-        const pillVal = document.getElementById('pill-pi-val');
-        if (pillVal) pillVal.textContent = val;
-        const modalVal = document.getElementById('modal-pi-cpu');
-        if (modalVal) modalVal.textContent = val;
-    }
-    if (msg.pi_mem !== undefined) {
-        const modalVal = document.getElementById('modal-pi-mem');
-        if (modalVal) modalVal.textContent = `${msg.pi_mem.toFixed(0)}%`;
-    }
-    if (msg.pi_temp !== undefined) {
-        const modalVal = document.getElementById('modal-pi-temp');
-        if (modalVal) modalVal.textContent = `${msg.pi_temp.toFixed(0)}°C`;
-    }
-    if (msg.pi_ip !== undefined) {
-        const modalVal = document.getElementById('modal-pi-ip');
-        if (modalVal) modalVal.textContent = msg.pi_ip;
-    }
+    // Pi Metrics → drawer
+    const _setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+    if (msg.pi_cpu  !== undefined) _setText('drawer-pi-cpu',  `${msg.pi_cpu.toFixed(0)}%`);
+    if (msg.pi_temp !== undefined) _setText('drawer-pi-temp', `${msg.pi_temp.toFixed(0)}°C`);
+    if (msg.pi_ip   !== undefined) _setText('drawer-pi-ip',   msg.pi_ip);
+    if (msg.battery_percentage !== undefined) _setText('drawer-pi-batt', `${msg.battery_percentage.toFixed(0)}%`);
 
-    // Jetson Metrics
-    if (msg.jetson_cpu !== undefined) {
-        const val = `${msg.jetson_cpu.toFixed(0)}%`;
-        const pillVal = document.getElementById('pill-jetson-val');
-        if (pillVal) pillVal.textContent = val;
-        const modalVal = document.getElementById('modal-jetson-cpu');
-        if (modalVal) modalVal.textContent = val;
-    }
-    if (msg.jetson_gpu !== undefined) {
-        const modalVal = document.getElementById('modal-jetson-gpu');
-        if (modalVal) modalVal.textContent = `${msg.jetson_gpu.toFixed(0)}%`;
-    }
-    if (msg.jetson_mem !== undefined) {
-        const modalVal = document.getElementById('modal-jetson-mem');
-        if (modalVal) modalVal.textContent = `${msg.jetson_mem.toFixed(0)}%`;
-        const modalGb = document.getElementById('modal-jetson-mem-gb');
-        if (modalGb && msg.jetson_mem_used !== undefined && msg.jetson_mem_total !== undefined) {
-            modalGb.textContent = `${msg.jetson_mem_used.toFixed(1)} / ${msg.jetson_mem_total.toFixed(1)} GB`;
-        }
-    }
-    if (msg.jetson_temp !== undefined) {
-        const modalVal = document.getElementById('modal-jetson-temp');
-        if (modalVal) modalVal.textContent = `${msg.jetson_temp.toFixed(0)}°C`;
-    }
-    if (msg.jetson_ip !== undefined) {
-        const modalVal = document.getElementById('modal-jetson-ip');
-        if (modalVal) modalVal.textContent = msg.jetson_ip;
-    }
-
-    // Battery (from Pi)
-    if (msg.battery_percentage !== undefined) {
-        const modalVal = document.getElementById('modal-pi-batt');
-        if (modalVal) modalVal.textContent = `${msg.battery_percentage.toFixed(0)}%`;
-    }
-    if (msg.battery_voltage !== undefined) {
-        const modalVal = document.getElementById('modal-pi-volt');
-        if (modalVal) modalVal.textContent = `${msg.battery_voltage.toFixed(2)}V`;
-    }
+    // Jetson Metrics → drawer
+    if (msg.jetson_cpu  !== undefined) _setText('drawer-jetson-cpu',  `${msg.jetson_cpu.toFixed(0)}%`);
+    if (msg.jetson_gpu  !== undefined) _setText('drawer-jetson-gpu',  `${msg.jetson_gpu.toFixed(0)}%`);
+    if (msg.jetson_mem  !== undefined) _setText('drawer-jetson-mem',  `${msg.jetson_mem.toFixed(0)}%`);
+    if (msg.jetson_temp !== undefined) _setText('drawer-jetson-temp', `${msg.jetson_temp.toFixed(0)}°C`);
+    if (msg.jetson_ip   !== undefined) _setText('drawer-jetson-ip',   msg.jetson_ip);
 }
 
 function fetchLocations() {
@@ -817,6 +755,7 @@ window.addEventListener('keydown', (e) => {
         updateKeyVelocity();
         updateWASDIndicator();
     }
+    if (e.key === 'Escape' && _drawerOpen) closeSysDrawer();
 });
 
 window.addEventListener('keyup', (e) => {
@@ -833,6 +772,155 @@ window.addEventListener('keyup', (e) => {
         }
     }
 });
+
+// ── System Drawer Logic ───────────────────────────────────────────────────────
+
+function openSysDrawer() {
+    _drawerOpen = true;
+    sysDrawer.classList.add('open');
+    sysDrawer.setAttribute('aria-hidden', 'false');
+    sysDrawerBtn.setAttribute('aria-expanded', 'true');
+    if (!_drawerLoaded) fetchServiceStatus();
+}
+
+function closeSysDrawer() {
+    _drawerOpen = false;
+    sysDrawer.classList.remove('open');
+    sysDrawer.setAttribute('aria-hidden', 'true');
+    sysDrawerBtn.setAttribute('aria-expanded', 'false');
+    dismissConfirm();
+}
+
+sysDrawerBtn?.addEventListener('click', () => _drawerOpen ? closeSysDrawer() : openSysDrawer());
+sysDrawerRefresh?.addEventListener('click', () => { _drawerLoaded = false; fetchServiceStatus(); });
+
+function renderServiceCards(services, listEl, target) {
+    listEl.innerHTML = '';
+    services.forEach(svc => {
+        const state = svc.active_state;
+        const cls   = ['active', 'failed', 'inactive'].includes(state) ? state : 'unknown';
+        const card  = document.createElement('div');
+        card.className       = 'sys-svc-card';
+        card.dataset.name    = svc.name;
+        card.dataset.target  = target;
+        card.innerHTML = `
+            <div class="sys-svc-row">
+                <span class="sys-svc-name">${svc.name}</span>
+                <span class="sys-svc-badge ${cls}" data-badge>${state}</span>
+                <div class="sys-svc-actions">
+                    <button class="sys-svc-btn restart" data-svc-action="restart">
+                        <svg class="ico"><use href="#i-refresh"/></svg>Restart
+                    </button>
+                    <button class="sys-svc-btn stop" data-svc-action="stop">
+                        <svg class="ico"><use href="#i-square"/></svg>Stop
+                    </button>
+                    <button class="sys-svc-log-toggle" data-log-toggle>
+                        <svg class="ico"><use href="#i-chevron"/></svg>Logs
+                    </button>
+                </div>
+            </div>
+            <div class="sys-log-pane"><div class="sys-log-content" data-log-content></div></div>`;
+        listEl.appendChild(card);
+    });
+}
+
+async function fetchServiceStatus() {
+    sysDrawerRefresh?.classList.add('spinning');
+    try {
+        const res  = await fetch('/api/system/services');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        renderServiceCards(data.jetson, document.getElementById('svc-list-jetson'), 'jetson');
+        renderServiceCards(data.pi,     document.getElementById('svc-list-pi'),     'pi');
+        _drawerLoaded = true;
+        wireServiceCards();
+    } catch (err) {
+        console.error('[sys-drawer] fetchServiceStatus:', err);
+    } finally {
+        sysDrawerRefresh?.classList.remove('spinning');
+    }
+}
+
+function wireServiceCards() {
+    document.querySelectorAll('[data-svc-action]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const card   = btn.closest('.sys-svc-card');
+            const badge  = card.querySelector('[data-badge]');
+            btn.disabled = true;
+            try {
+                const res  = await fetch(
+                    `/api/system/services/${card.dataset.target}/${card.dataset.name}/action`,
+                    { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ action: btn.dataset.svcAction }) });
+                const data = await res.json();
+                if (data.success) {
+                    await fetchServiceStatus();
+                } else {
+                    badge.textContent = 'error';
+                    badge.className   = 'sys-svc-badge failed';
+                }
+            } catch {
+                badge.textContent = 'error';
+                badge.className   = 'sys-svc-badge failed';
+            } finally {
+                btn.disabled = false;
+            }
+        });
+    });
+
+    document.querySelectorAll('[data-log-toggle]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const card    = btn.closest('.sys-svc-card');
+            const content = card.querySelector('[data-log-content]');
+            if (card.classList.toggle('logs-open')) {
+                content.textContent = 'Loading…';
+                try {
+                    const res  = await fetch(
+                        `/api/system/services/${card.dataset.target}/${card.dataset.name}/logs`);
+                    const data = await res.json();
+                    content.textContent = data.lines || '(no output)';
+                    content.scrollTop   = content.scrollHeight;
+                } catch { content.textContent = 'Failed to load logs.'; }
+            }
+        });
+    });
+}
+
+function showConfirm(title, msg, onOk) {
+    _pendingPower = onOk;
+    document.getElementById('sys-confirm-title').textContent = title;
+    document.getElementById('sys-confirm-msg').textContent   = msg;
+    document.getElementById('sys-confirm-overlay').classList.add('visible');
+}
+
+function dismissConfirm() {
+    _pendingPower = null;
+    document.getElementById('sys-confirm-overlay')?.classList.remove('visible');
+}
+
+document.getElementById('sys-confirm-cancel')?.addEventListener('click', dismissConfirm);
+document.getElementById('sys-confirm-ok')?.addEventListener('click', async () => {
+    if (_pendingPower) await _pendingPower();
+    dismissConfirm();
+});
+
+document.querySelectorAll('.sys-power-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const { target, action } = btn.dataset;
+        const label = target === 'jetson' ? 'Jetson Orin Nano' : 'Raspberry Pi 5';
+        showConfirm(
+            `${action === 'shutdown' ? 'Shut Down' : 'Reboot'} ${label}`,
+            `This will ${action} the ${label}. Continue?`,
+            () => fetch('/api/system/power', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action, target }),
+            })
+        );
+    });
+});
+
+// ── Waypoints / navigation ────────────────────────────────────────────────────
 
 saveLocBtn.onclick = saveLocation;
 stopNavBtn.onclick = () => fetch(`${location.protocol}//${location.hostname}:${APP_PORT}/api/navigate/cancel`, { method: 'POST' });

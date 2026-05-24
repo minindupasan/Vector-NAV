@@ -78,6 +78,13 @@ case "$ACTION" in
             sudo chmod 440 "$SUDOERS_FILE"
         fi
 
+        # Web panel sudoers (service restart/stop + power — always kept in sync)
+        PANEL_SUDOERS=/etc/sudoers.d/vector-web-panel
+        echo "  Installing web panel sudoers..."
+        sudo cp "$SERVICES_DIR/vector-web-panel" "$PANEL_SUDOERS"
+        sudo chmod 440 "$PANEL_SUDOERS"
+        sudo visudo -c -f "$PANEL_SUDOERS" || { echo "  [ERROR] sudoers syntax invalid — removing"; sudo rm "$PANEL_SUDOERS"; exit 1; }
+
         sudo systemctl daemon-reload
         sudo loginctl enable-linger admin
 

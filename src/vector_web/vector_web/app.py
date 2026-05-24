@@ -62,6 +62,26 @@ PORT = int(os.environ.get('PORT', '8080'))
 STATIC_DIR = Path(__file__).parent / 'static'
 CERT_DIR = Path(__file__).parent.parent / 'certs'
 
+PI_HOST      = os.environ.get('PI_HOST', '192.168.10.2')
+_SSH_BASE    = ['ssh', '-i', '/home/admin/.ssh/id_ed25519',
+                '-o', 'StrictHostKeyChecking=no',
+                '-o', 'ConnectTimeout=5', f'admin@{PI_HOST}']
+JETSON_SERVICES = ['vector-web', 'vector-llm', 'vector-assistant',
+                   'vector-navigation', 'vector-status', 'sllidar']
+PI_SERVICES     = ['camera', 'battery', 'shutdown', 'oled-display', 'vector-control']
+
+
+async def _run_cmd(args: list, timeout: float = 10.0):
+    proc = await asyncio.create_subprocess_exec(
+        *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        return -1, '', 'timeout'
+    return proc.returncode, stdout.decode(errors='replace'), stderr.decode(errors='replace')
+
+
 # ── Pydantic request models ───────────────────────────────────────────────────
 
 class SaveLocationRequest(BaseModel):
@@ -87,6 +107,13 @@ class SaveMapRequest(BaseModel):
 
 class RenameMapRequest(BaseModel):
     new_name: str
+
+class ServiceActionBody(BaseModel):
+    action: str   # 'restart' | 'stop'
+
+class PowerActionBody(BaseModel):
+    action: str   # 'shutdown' | 'reboot'
+    target: str   # 'jetson' | 'pi'
 
 # ── Maps directory (read-only views still served by the web layer) ───────────
 
@@ -704,6 +731,82 @@ async def rename_map(name: str, body: RenameMapRequest):
 @app.post('/api/navigate/cancel')
 async def cancel_nav():
     bridge._cmd_vel_pub.publish(Twist())
+    return JSONResponse({'success': True})
+
+# ── System management ─────────────────────────────────────────────────────────
+
+@app.get('/api/system/services')
+async def get_system_services():
+    async def _status(args: list, name: str) -> dict:
+        rc, out, _ = await _run_cmd(args + [
+            'systemctl', 'show', name, '--no-pager',
+            '--property=ActiveState,SubState'], timeout=6.0)
+        props = {}
+        for line in out.splitlines():
+            if '=' in line:
+                k, v = line.split('=', 1)
+                props[k] = v
+        return {'name': name,
+                'active_state': props.get('ActiveState', 'unknown'),
+                'sub_state':    props.get('SubState', '')}
+
+    jetson_results, pi_results = await asyncio.gather(
+        asyncio.gather(*[_status([], s) for s in JETSON_SERVICES]),
+        asyncio.gather(*[_status(_SSH_BASE, s) for s in PI_SERVICES]),
+    )
+    return JSONResponse({'jetson': list(jetson_results), 'pi': list(pi_results)})
+
+
+@app.get('/api/system/services/{target}/{name}/logs')
+async def get_service_logs(target: str, name: str):
+    if target == 'jetson':
+        if name not in JETSON_SERVICES:
+            return JSONResponse({'error': 'unknown service'}, status_code=400)
+        rc, out, err = await _run_cmd(
+            ['journalctl', '-u', name, '-n', '60', '--no-pager', '--output=short-iso'],
+            timeout=8.0)
+    elif target == 'pi':
+        if name not in PI_SERVICES:
+            return JSONResponse({'error': 'unknown service'}, status_code=400)
+        rc, out, err = await _run_cmd(
+            _SSH_BASE + ['journalctl', '-u', name, '-n', '60',
+                         '--no-pager', '--output=short-iso'],
+            timeout=14.0)
+    else:
+        return JSONResponse({'error': 'invalid target'}, status_code=400)
+    return JSONResponse({'lines': out if out else err, 'ok': rc == 0})
+
+
+@app.post('/api/system/services/{target}/{name}/action')
+async def service_action(target: str, name: str, body: ServiceActionBody):
+    if body.action not in ('restart', 'stop'):
+        return JSONResponse({'error': 'invalid action'}, status_code=400)
+    if target == 'jetson':
+        if name not in JETSON_SERVICES:
+            return JSONResponse({'error': 'unknown service'}, status_code=400)
+        rc, _, err = await _run_cmd(
+            ['sudo', 'systemctl', body.action, name], timeout=15.0)
+    elif target == 'pi':
+        if name not in PI_SERVICES:
+            return JSONResponse({'error': 'unknown service'}, status_code=400)
+        rc, _, err = await _run_cmd(
+            _SSH_BASE + ['sudo', 'systemctl', body.action, name], timeout=20.0)
+    else:
+        return JSONResponse({'error': 'invalid target'}, status_code=400)
+    return JSONResponse({'success': rc == 0, 'error': err if rc != 0 else None})
+
+
+@app.post('/api/system/power')
+async def system_power(body: PowerActionBody):
+    if body.action not in ('shutdown', 'reboot'):
+        return JSONResponse({'error': 'invalid action'}, status_code=400)
+    cmd = 'poweroff' if body.action == 'shutdown' else 'reboot'
+    if body.target == 'jetson':
+        asyncio.create_task(_run_cmd(['sudo', cmd], timeout=5.0))
+    elif body.target == 'pi':
+        asyncio.create_task(_run_cmd(_SSH_BASE + ['sudo', cmd], timeout=8.0))
+    else:
+        return JSONResponse({'error': 'invalid target'}, status_code=400)
     return JSONResponse({'success': True})
 
 # ── WebSockets ────────────────────────────────────────────────────────────────

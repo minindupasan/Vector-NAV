@@ -315,7 +315,8 @@
     <!-- ── MAIN APP SHELL ───────────────────────────────────────────── -->
     <div class="app-shell">
 
-        <!-- Top bar -->
+        <!-- Topbar region: topbar + collapsible SYSTEM drawer -->
+        <div class="topbar-region">
         <header class="topbar">
             <div class="brand">
                 <object data="/static/logo.svg" type="image/svg+xml" class="brand-mark" aria-label="Vector Nav"></object>
@@ -325,12 +326,12 @@
                 </div>
             </div>
 
-            <!-- System status pills -->
-            <div class="sys-pills">
-<div class="sys-pill clickable" id="pill-jetson"><svg class="ico"><use href="#i-cpu"/></svg><span>JETSON <em id="pill-jetson-val">--%</em></span><span class="sys-dot ok"></span></div>
-                <div class="sys-pill clickable" id="pill-pi"><svg class="ico"><use href="#i-chip"/></svg><span>PI 5 <em id="pill-pi-val">--%</em></span><span class="sys-dot ok"></span></div>
-                <div class="sys-pill"><svg class="ico"><use href="#i-layers"/></svg><span>LIDAR <em>10Hz</em></span><span class="sys-dot ok"></span></div>
-            </div>
+            <!-- SYSTEM notch — opens/closes the drawer -->
+            <button id="sys-drawer-btn" class="sys-notch" aria-expanded="false" aria-controls="sys-drawer">
+                <svg class="ico"><use href="#i-cpu"/></svg>
+                <span class="sys-notch-label">SYSTEM</span>
+                <svg class="ico sys-notch-chevron"><use href="#i-chevron"/></svg>
+            </button>
 
             <!-- Safety controls -->
             <div class="safety-cluster">
@@ -436,6 +437,79 @@
                 </button>
             </div>
         </header>
+
+        <!-- ── SYSTEM drawer ──────────────────────────────────────────── -->
+        <div id="sys-drawer" class="sys-drawer" aria-hidden="true">
+            <div class="sys-drawer-inner">
+
+                <!-- JETSON section -->
+                <section class="sys-section">
+                    <div class="sys-section-head">
+                        <svg class="ico"><use href="#i-cpu"/></svg>
+                        <span>JETSON ORIN NANO</span>
+                        <span class="sys-section-ip" id="drawer-jetson-ip">—</span>
+                    </div>
+                    <div class="sys-stats-row">
+                        <div class="sys-stat"><div class="sys-stat-lbl">CPU</div><div class="sys-stat-val" id="drawer-jetson-cpu">--%</div></div>
+                        <div class="sys-stat"><div class="sys-stat-lbl">GPU</div><div class="sys-stat-val" id="drawer-jetson-gpu">--%</div></div>
+                        <div class="sys-stat"><div class="sys-stat-lbl">MEM</div><div class="sys-stat-val" id="drawer-jetson-mem">--%</div></div>
+                        <div class="sys-stat"><div class="sys-stat-lbl">TEMP</div><div class="sys-stat-val" id="drawer-jetson-temp">--°C</div></div>
+                    </div>
+                    <div class="sys-svc-list" id="svc-list-jetson"></div>
+                    <div class="sys-power-row">
+                        <button class="sys-power-btn btn-secondary" data-target="jetson" data-action="reboot">
+                            <svg class="ico"><use href="#i-refresh"/></svg> Reboot
+                        </button>
+                        <button class="sys-power-btn btn-danger" data-target="jetson" data-action="shutdown">
+                            <svg class="ico"><use href="#i-square"/></svg> Shutdown
+                        </button>
+                    </div>
+                </section>
+
+                <div class="sys-divider"></div>
+
+                <!-- RASPBERRY PI section -->
+                <section class="sys-section">
+                    <div class="sys-section-head">
+                        <svg class="ico"><use href="#i-chip"/></svg>
+                        <span>RASPBERRY PI 5</span>
+                        <span class="sys-section-ip" id="drawer-pi-ip">—</span>
+                    </div>
+                    <div class="sys-stats-row">
+                        <div class="sys-stat"><div class="sys-stat-lbl">CPU</div><div class="sys-stat-val" id="drawer-pi-cpu">--%</div></div>
+                        <div class="sys-stat"><div class="sys-stat-lbl">TEMP</div><div class="sys-stat-val" id="drawer-pi-temp">--°C</div></div>
+                        <div class="sys-stat"><div class="sys-stat-lbl">BATT</div><div class="sys-stat-val" id="drawer-pi-batt">--%</div></div>
+                    </div>
+                    <div class="sys-svc-list" id="svc-list-pi"></div>
+                    <div class="sys-power-row">
+                        <button class="sys-power-btn btn-secondary" data-target="pi" data-action="reboot">
+                            <svg class="ico"><use href="#i-refresh"/></svg> Reboot
+                        </button>
+                        <button class="sys-power-btn btn-danger" data-target="pi" data-action="shutdown">
+                            <svg class="ico"><use href="#i-square"/></svg> Shutdown
+                        </button>
+                    </div>
+                </section>
+
+            </div><!-- /.sys-drawer-inner -->
+
+            <button id="sys-drawer-refresh" class="sys-drawer-refresh-btn">
+                <svg class="ico"><use href="#i-refresh"/></svg><span>REFRESH STATUS</span>
+            </button>
+
+            <!-- Confirmation overlay -->
+            <div class="sys-confirm-overlay" id="sys-confirm-overlay">
+                <div class="sys-confirm-box">
+                    <div class="sys-confirm-title" id="sys-confirm-title">Confirm</div>
+                    <div class="sys-confirm-msg" id="sys-confirm-msg"></div>
+                    <div class="sys-confirm-actions">
+                        <button id="sys-confirm-cancel" class="sys-cbtn secondary">Cancel</button>
+                        <button id="sys-confirm-ok" class="sys-cbtn danger">Confirm</button>
+                    </div>
+                </div>
+            </div>
+        </div><!-- /#sys-drawer -->
+        </div><!-- /.topbar-region -->
 
         <!-- Main 3-column workspace -->
         <div class="workspace">
@@ -750,75 +824,6 @@
       update();
     })();
     </script>
-    <!-- ── SYSTEM MODALS ─────────────────────────────────────────── -->
-    <div id="modal-jetson" class="modal-overlay">
-        <div class="modal-content">
-            <button class="modal-close" onclick="closeModal('modal-jetson')"><svg class="ico"><use href="#i-x"/></svg></button>
-            <div class="modal-header">
-                <div class="modal-title-row">
-                    <svg class="ico title-ico"><use href="#i-cpu"/></svg>
-                    <h2>Jetson Orin Nano</h2>
-                </div>
-                <div class="modal-ip" id="modal-jetson-ip">0.0.0.0</div>
-            </div>
-            <div class="modal-body">
-                <div class="modal-grid">
-                    <div class="m-stat">
-                        <div class="m-label">CPU LOAD</div>
-                        <div class="m-val" id="modal-jetson-cpu">--%</div>
-                    </div>
-                    <div class="m-stat">
-                        <div class="m-label">GPU LOAD</div>
-                        <div class="m-val" id="modal-jetson-gpu">--%</div>
-                    </div>
-                    <div class="m-stat">
-                        <div class="m-label">MEMORY</div>
-                        <div class="m-val" id="modal-jetson-mem">--%</div>
-                        <div class="m-sub" id="modal-jetson-mem-gb">-- GB</div>
-                    </div>
-
-                    <div class="m-stat">
-                        <div class="m-label">TEMPERATURE</div>
-                        <div class="m-val" id="modal-jetson-temp">--°C</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div id="modal-pi" class="modal-overlay">
-        <div class="modal-content">
-            <button class="modal-close" onclick="closeModal('modal-pi')"><svg class="ico"><use href="#i-x"/></svg></button>
-            <div class="modal-header">
-                <div class="modal-title-row">
-                    <svg class="ico title-ico"><use href="#i-chip"/></svg>
-                    <h2>Raspberry Pi 5</h2>
-                </div>
-                <div class="modal-ip" id="modal-pi-ip">0.0.0.0</div>
-            </div>
-            <div class="modal-body">
-                <div class="modal-grid">
-                    <div class="m-stat">
-                        <div class="m-label">CPU LOAD</div>
-                        <div class="m-val" id="modal-pi-cpu">--%</div>
-                    </div>
-                    <div class="m-stat">
-                        <div class="m-label">MEMORY</div>
-                        <div class="m-val" id="modal-pi-mem">--%</div>
-                    </div>
-                    <div class="m-stat">
-                        <div class="m-label">TEMPERATURE</div>
-                        <div class="m-val" id="modal-pi-temp">--°C</div>
-                    </div>
-                    <div class="m-stat">
-                        <div class="m-label">BATTERY</div>
-                        <div class="m-val" id="modal-pi-batt">--%</div>
-                        <div class="m-sub" id="modal-pi-volt">--V</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
 
 </body>
 </html>
