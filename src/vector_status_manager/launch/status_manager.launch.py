@@ -1,8 +1,9 @@
 """
 VECTOR STATUS MANAGER — standalone launch.
 
-Brings up the status_manager_node by itself. The same node is also referenced
-from the canonical bringup (vector_nav_manager/launch/manager.launch.py).
+Brings up status_manager_node and jetson_stats_node as a standalone pair,
+decoupled from vector-navigation so the service can restart independently
+when RPi data is not yet available at boot.
 """
 
 import os
@@ -21,4 +22,12 @@ def generate_launch_description():
         emulate_tty=True,
     )
 
-    return LaunchDescription([status_manager])
+    jetson_stats = Node(
+        package='vector_status_manager',
+        executable='jetson_stats_node',
+        name='jetson_stats_node',
+        output='screen',
+        emulate_tty=True,
+    )
+
+    return LaunchDescription([status_manager, jetson_stats])

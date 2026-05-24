@@ -97,8 +97,20 @@ def get_battery() -> tuple[str, str]:
 
 
 def main():
-    serial = i2c(port=I2C_BUS, address=OLED_ADDR)
-    device = ssd1306(serial, width=128, height=64)
+    serial = None
+    device = None
+    for attempt in range(1, 21):
+        try:
+            serial = i2c(port=I2C_BUS, address=OLED_ADDR)
+            device = ssd1306(serial, width=128, height=64)
+            break
+        except Exception as e:
+            log.warning("I2C init attempt %d/20 failed: %s", attempt, e)
+            time.sleep(3)
+    else:
+        log.error("Could not initialize OLED after 20 attempts — giving up")
+        sys.exit(1)
+
     font = ImageFont.load_default()
     try:
         big_font = ImageFont.truetype(

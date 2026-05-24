@@ -14,7 +14,7 @@ RestartSec=5
 # Environment=SHUTDOWN_PIN=8
 # Environment=HOLD_TIME=2.0
 # Environment=COUNTDOWN_SEC=5
-# Environment=JETSON_HOST=192.168.8.143
+# Environment=JETSON_HOST=192.168.10.1
 
 [Install]
 WantedBy=multi-user.target

@@ -32,12 +32,16 @@ services:
       # Must match the Jetson's ROS_DOMAIN_ID for DDS discovery
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+      - CYCLONEDDS_URI=/config/cyclonedds.xml
       - GPIOZERO_PIN_FACTORY=lgpio
 
     volumes:
       # ── /dev: all device nodes (GPIO chips, I2C, SPI, serial) ──
       # /dev/lidar is a udev symlink → actual ttyUSB device (see 99-lidar.rules)
       - /dev:/dev
+
+      # ── CycloneDDS config (pin DDS to eth0 for Jetson↔RPi link) ──
+      - ./config:/config:ro
 
       # ── Live source mount for development ──
       - ./vector_control:/ros2_ws/src/vector_control:ro

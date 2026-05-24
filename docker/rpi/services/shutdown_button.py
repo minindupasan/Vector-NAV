@@ -39,7 +39,7 @@ Device.pin_factory = LGPIOFactory()
 PIN = int(os.environ.get("SHUTDOWN_PIN", "3"))
 HOLD_TIME = float(os.environ.get("HOLD_TIME", "2.0"))
 COUNTDOWN_SEC = int(os.environ.get("COUNTDOWN_SEC", "5"))
-JETSON_HOST = os.environ.get("JETSON_HOST", "192.168.8.143")
+JETSON_HOST = os.environ.get("JETSON_HOST", "192.168.10.1")
 JETSON_PORT = int(os.environ.get("JETSON_PORT", "9877"))
 COUNTDOWN_PATH = os.environ.get("COUNTDOWN_PATH", "/run/vector/shutdown_countdown.json")
 

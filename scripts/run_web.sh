@@ -33,6 +33,7 @@ fi
 # 4. Add web app to PYTHONPATH
 export PYTHONPATH="$WORKSPACE_DIR/src/vector_web:$PYTHONPATH"
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+export CYCLONEDDS_URI=file:///home/admin/vector_nav/config/cyclonedds.xml
 
 # Debug PYTHONPATH
 echo "PYTHONPATH: $PYTHONPATH"
