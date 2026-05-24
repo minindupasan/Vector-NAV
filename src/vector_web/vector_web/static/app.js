@@ -946,42 +946,41 @@ function setEstop(on) {
     estopActive = on;
     estopBtn?.classList.toggle('active', on);
     if (resumeBtn) resumeBtn.disabled = !on;
+    if (estopBtn)   estopBtn.disabled   = false; // always keep enabled
+    if (stopTopBtn) stopTopBtn.disabled = false;
 }
 estopBtn?.addEventListener('click', () => {
-    sendWS({ type: 'stop' });
     fetch(`${location.protocol}//${location.hostname}:${APP_PORT}/api/navigate/cancel`, { method: 'POST' }).catch(() => {});
     setEstop(true);
-    addLog('WARN', 'E-STOP engaged');
+    addLog('WARN', 'E-STOP engaged — goal discarded');
     showToast('E-STOP engaged', false);
 });
 resumeBtn?.addEventListener('click', () => {
     if (!estopActive) return;
+    fetch(`${location.protocol}//${location.hostname}:${APP_PORT}/api/navigate/resume`, { method: 'POST' }).catch(() => {});
     setEstop(false);
-    addLog('OK', 'E-STOP cleared · resume');
+    addLog('OK', 'Navigation resumed');
     showToast('Resumed', true);
 });
 stopTopBtn?.addEventListener('click', () => {
     sendWS({ type: 'stop' });
-    fetch(`${location.protocol}//${location.hostname}:${APP_PORT}/api/navigate/cancel`, { method: 'POST' }).catch(() => {});
-    addLog('NAV', 'Motion halted');
+    fetch(`${location.protocol}//${location.hostname}:${APP_PORT}/api/navigate/pause`, { method: 'POST' }).catch(() => {});
+    setEstop(true);
+    addLog('NAV', 'Navigation paused — press Resume to continue');
+    showToast('Navigation paused', false);
 });
 
-// ── Disable nav-only safety controls when in SLAM mode ───────────────────────
+// ── Nav-only gate: only _stopNavBtn is mode-gated; safety buttons always active ──
 const _stopNavBtn = document.getElementById('stop-nav-btn');
 function _applyNavOnlyButtons() {
-    const m = window.__vnMode.current;
-    const switching = window.__vnMode.switching;
-    const isNav = (m === 'nav') && !switching;
-    [estopBtn, resumeBtn, stopTopBtn, _stopNavBtn].forEach(b => {
-        if (!b) return;
-        if (b === resumeBtn) {
-            b.disabled = !isNav || !estopActive;
-        } else {
-            b.disabled = !isNav;
-        }
-        b.title = isNav ? (b.dataset.origTitle || b.title) :
-                 (switching ? 'Disabled during mode switch' : 'Disabled in SLAM mode');
-    });
+    const isNav = window.__vnMode && (window.__vnMode.current === 'nav') && !window.__vnMode.switching;
+    // _stopNavBtn is the only truly nav-only control
+    if (_stopNavBtn) _stopNavBtn.disabled = !isNav;
+    // resumeBtn depends only on estop state, never on mode
+    if (resumeBtn) resumeBtn.disabled = !estopActive;
+    // estopBtn and stopTopBtn are always enabled — safety controls must never be gated
+    if (estopBtn)   estopBtn.disabled   = false;
+    if (stopTopBtn) stopTopBtn.disabled = false;
 }
 [estopBtn, resumeBtn, stopTopBtn, _stopNavBtn].forEach(b => { if (b) b.dataset.origTitle = b.title; });
 window.addEventListener('vectorModeChange', _applyNavOnlyButtons);
@@ -1110,6 +1109,7 @@ addLog('SYS', 'Console online');
     }
 
     let _xform = null;  // last canvas↔map transform
+    let _zoom  = 2;     // multiplier over fit-to-canvas scale (scroll wheel adjusts)
 
     function draw() {
         if (!_img || !_meta) return;
@@ -1120,54 +1120,48 @@ addLog('SYS', 'Console online');
             ctx.imageSmoothingEnabled = false;
         }
         const { width: mw, height: mh, resolution, origin_x, origin_y } = _meta;
-        // Use live pose if available, else fall back to pose baked into map message
         const robot_x   = _pose ? _pose.x   : (_meta.robot_x   || 0);
         const robot_y   = _pose ? _pose.y   : (_meta.robot_y   || 0);
         const robot_yaw = _pose ? _pose.yaw : (_meta.robot_yaw || 0);
         const cw = canvas.width, ch = canvas.height;
 
-        const scale = Math.min(cw / mw, ch / mh);
-        const dx = (cw - mw * scale) / 2;
-        const dy = (ch - mh * scale) / 2;
+        // Robot-centered view: magnify map and pin robot to canvas center
+        const fitScale = Math.min(cw / mw, ch / mh);
+        const scale = fitScale * _zoom;
+        const pxPerMetre = 1 / resolution;
+        const robotMapPx = (robot_x - origin_x) * pxPerMetre;
+        const robotMapPy = mh - (robot_y - origin_y) * pxPerMetre;
+        const dx = cw / 2 - robotMapPx * scale;
+        const dy = ch / 2 - robotMapPy * scale;
         _xform = { dx, dy, scale, mh, resolution, origin_x, origin_y };
 
-        // Dark background for unknown/empty areas outside map bounds
-        ctx.fillStyle = '#10121a';
+        ctx.fillStyle = '#0a0a0a';
         ctx.fillRect(0, 0, cw, ch);
         ctx.drawImage(_img, dx, dy, mw * scale, mh * scale);
 
         drawPlan();
 
-        // Robot marker — fixed pixel size so it's always visible
-        if (resolution > 0) {
-            const pxPerMetre = 1 / resolution;
-            const px = dx + (robot_x - origin_x) * pxPerMetre * scale;
-            const py = dy + (mh - (robot_y - origin_y) * pxPerMetre) * scale;
+        // Robot marker — Lucide navigation-2, arrow scales with zoom, pointer dot is fixed
+        // Polygon "12 2 19 21 12 14 5 21" on 24×24 grid, centered → (0,-10)(7,9)(0,2)(-7,9)
+        const sc = (_zoom / 2) * (22 / 19); // scales with zoom; at default _zoom=2 → same as before
+        ctx.save();
+        ctx.translate(cw / 2, ch / 2);
+        ctx.rotate(-robot_yaw + Math.PI / 2);
+        ctx.beginPath();
+        ctx.moveTo(0,        -10 * sc);
+        ctx.lineTo( 7 * sc,   9 * sc);
+        ctx.lineTo(0,          2 * sc);
+        ctx.lineTo(-7 * sc,   9 * sc);
+        ctx.closePath();
+        ctx.fillStyle = '#ff3b30';
+        ctx.fill();
+        ctx.restore();
 
-            // Direction arrow (fixed 12px)
-            ctx.save();
-            ctx.translate(px, py);
-            ctx.rotate(-robot_yaw);
-            ctx.beginPath();
-            ctx.moveTo(0, -12);
-            ctx.lineTo(6, 6);
-            ctx.lineTo(-6, 6);
-            ctx.closePath();
-            ctx.fillStyle = '#00e5ff';
-            ctx.shadowColor = '#00e5ff';
-            ctx.shadowBlur = 6;
-            ctx.fill();
-            ctx.restore();
-
-            // Centre dot
-            ctx.beginPath();
-            ctx.arc(px, py, 5, 0, Math.PI * 2);
-            ctx.fillStyle = '#ffffff';
-            ctx.shadowColor = '#00e5ff';
-            ctx.shadowBlur = 8;
-            ctx.fill();
-            ctx.shadowBlur = 0;
-        }
+        // Fixed-size pointer dot marking exact robot position
+        ctx.beginPath();
+        ctx.arc(cw / 2, ch / 2, 3, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
     }
 
     let _plan = null;   // [{x, y}, ...] in map-world coords
@@ -1177,9 +1171,9 @@ addLog('SYS', 'Console online');
         const { dx, dy, scale, mh, resolution, origin_x, origin_y } = _xform;
         const pxPerMetre = 1 / resolution;
         ctx.save();
-        ctx.strokeStyle = '#39ff14';
+        ctx.strokeStyle = '#ff9f0a';
         ctx.lineWidth = 2;
-        ctx.shadowColor = '#39ff14';
+        ctx.shadowColor = '#ff9f0a';
         ctx.shadowBlur = 4;
         ctx.setLineDash([6, 4]);
         ctx.beginPath();
@@ -1256,7 +1250,23 @@ addLog('SYS', 'Console online');
             stopMapPoll();
             const image = new Image();
             image.onload = () => {
-                _img = image;
+                // Process map: invert colors, punch out bg (231,232,235) → transparent
+                const oc = document.createElement('canvas');
+                oc.width = image.naturalWidth; oc.height = image.naturalHeight;
+                const ox = oc.getContext('2d');
+                ox.drawImage(image, 0, 0);
+                const id = ox.getImageData(0, 0, oc.width, oc.height);
+                const d = id.data;
+                for (let i = 0; i < d.length; i += 4) {
+                    const r = d[i], g = d[i+1], b = d[i+2];
+                    if (Math.abs(r - 231) <= 4 && Math.abs(g - 232) <= 4 && Math.abs(b - 235) <= 4) {
+                        d[i+3] = 0; // transparent
+                    } else {
+                        d[i] = 255 - r; d[i+1] = 255 - g; d[i+2] = 255 - b;
+                    }
+                }
+                ox.putImageData(id, 0, 0);
+                _img = oc;
                 draw();
                 if (_retryTimer) clearInterval(_retryTimer);
                 const [w] = getSize();
@@ -1272,7 +1282,7 @@ addLog('SYS', 'Console online');
         clear() {
             _img = null; _meta = null; _plan = null;
             if (_retryTimer) { clearInterval(_retryTimer); _retryTimer = null; }
-            ctx.fillStyle = '#10121a';
+            ctx.fillStyle = '#0a0a0a';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             if (noData) noData.hidden = false;
         }
@@ -1281,6 +1291,13 @@ addLog('SYS', 'Console online');
     new IntersectionObserver((entries) => {
         if (entries[0].isIntersecting && _img) { resize(); draw(); }
     }, { threshold: 0.1 }).observe(canvas);
+
+    canvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+        _zoom = Math.min(8, Math.max(0.5, _zoom * factor));
+        if (_img) draw();
+    }, { passive: false });
 
     // ResizeObserver: re-attach when canvas parent changes (e.g. HUD reparent)
     let _ro = null;

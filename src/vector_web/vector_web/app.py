@@ -39,12 +39,13 @@ from nav_msgs.msg import OccupancyGrid, Path as NavPath
 from sensor_msgs.msg import LaserScan
 import tf2_ros
 from std_msgs.msg import String, Float32MultiArray, Float32, Bool
-from vector_interfaces.msg import RobotStatus, SttResult
+from vector_interfaces.msg import RobotStatus, SttResult, LLMToolCall
 from vector_interfaces.srv import (
     DeleteLocation, GetLocations, NavigateToLocation, SetLocation, RenameLocation,
     SetMode, GetMode, SaveMap, ListMaps,
 )
 from nav2_msgs.srv import SetInitialPose as SetInitialPoseSrv
+from action_msgs.srv import CancelGoal as ActionCancelGoal
 
 from .audio_utils import pcm_to_wav
 
@@ -165,6 +166,9 @@ class UnifiedBridgeNode(Node):
         self._tts_pub = self.create_publisher(String, '/tts/input', 10)
         self._target_pub = self.create_publisher(String, '/tts/target', 10)
         self._goal_pose_pub = self.create_publisher(PoseStamped, '/goal_pose', 10)
+        self._tool_call_pub  = self.create_publisher(LLMToolCall, '/llm/tool_call', 10)
+        self._nav2_cancel    = self.create_client(ActionCancelGoal, '/navigate_to_pose/_action/cancel_goal', callback_group=cb)
+        self._last_goal_pose: Optional[PoseStamped] = None  # cached for resume
         
         # Subscribers
         self.create_subscription(RobotStatus, '/robot_status', self._on_status, 10, callback_group=cb)
@@ -227,6 +231,36 @@ class UnifiedBridgeNode(Node):
         self._target_twist = Twist()
         self._last_cmd_time = 0
         self._cmd_vel_pub.publish(self._target_twist)
+
+    def _publish_tool(self, name: str):
+        msg = LLMToolCall()
+        msg.name = name
+        msg.arguments_json = '{}'
+        self._tool_call_pub.publish(msg)
+
+    def _cancel_nav2_all(self):
+        """Cancel all active nav2 goals directly via action cancel service."""
+        if self._nav2_cancel.service_is_ready():
+            self._nav2_cancel.call_async(ActionCancelGoal.Request())
+
+    def cancel_nav_goal(self):
+        """Hard-cancel nav2 goal (E-Stop). Goal is discarded."""
+        self._cancel_nav2_all()
+        self._publish_tool('stop_navigation')
+        self.stop_robot()
+
+    def pause_nav_goal(self):
+        """Soft-pause: cancel nav2 + notify nav_manager (goal cached there for resume)."""
+        self._cancel_nav2_all()
+        self._publish_tool('pause_navigation')
+        self.stop_robot()
+
+    def resume_nav_goal(self):
+        """Resume: re-publish the last /goal_pose, also notify nav_manager."""
+        if self._last_goal_pose:
+            self._last_goal_pose.header.stamp = self.get_clock().now().to_msg()
+            self._goal_pose_pub.publish(self._last_goal_pose)
+        self._publish_tool('resume_navigation')
 
     def _on_status(self, msg: RobotStatus):
         self._latest_stats.update({
@@ -551,6 +585,7 @@ async def set_goal(request: Request):
     msg.pose.position.z = 0.0
     msg.pose.orientation.z = math.sin(half)
     msg.pose.orientation.w = math.cos(half)
+    bridge._last_goal_pose = msg
     bridge._goal_pose_pub.publish(msg)
     logger.info(f'Published goal pose x={x:.3f} y={y:.3f} yaw={yaw:.3f}')
     return JSONResponse({'success': True})
@@ -745,7 +780,17 @@ async def rename_map(name: str, body: RenameMapRequest):
 
 @app.post('/api/navigate/cancel')
 async def cancel_nav():
-    bridge._cmd_vel_pub.publish(Twist())
+    bridge.cancel_nav_goal()
+    return JSONResponse({'success': True})
+
+@app.post('/api/navigate/pause')
+async def pause_nav():
+    bridge.pause_nav_goal()
+    return JSONResponse({'success': True})
+
+@app.post('/api/navigate/resume')
+async def resume_nav():
+    bridge.resume_nav_goal()
     return JSONResponse({'success': True})
 
 # ── System management ─────────────────────────────────────────────────────────
@@ -875,8 +920,8 @@ async def control_ws(websocket: WebSocket):
                     logger.debug(f"Teleop: lin={lin:.3f}, ang={ang:.3f}")
                 bridge.set_twist(lin, ang)
             elif mtype == 'stop':
-                logger.debug("Teleop: STOP")
-                bridge.stop_robot()
+                logger.debug("Teleop: STOP (pause)")
+                bridge.pause_nav_goal()
             elif mtype == 'get_map':
                 await bridge.send_map_to_client(websocket)
     except WebSocketDisconnect: pass

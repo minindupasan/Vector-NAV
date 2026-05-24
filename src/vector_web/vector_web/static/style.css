@@ -815,7 +815,7 @@ html, body {
     position: relative; flex: 1; min-height: 0; overflow: visible;
     background:
         radial-gradient(120% 80% at 50% 100%, rgba(250,183,183,0.05), transparent 60%),
-        var(--vn-bg-soft);
+        #0a0a0a;
     border-radius: var(--vn-radius-sm);
     border: 1px solid var(--vn-border);
 }
@@ -874,18 +874,18 @@ html, body {
     color: var(--vn-fg-muted);
 }
 .map-pop-trigger[aria-expanded="true"] .chev { transform: rotate(-90deg); color: var(--vn-fg); }
-/* Icon-only action buttons (refresh, set-pose, set-goal) — beefier square chips */
+/* Icon-only action buttons (refresh, set-pose, set-goal) — same height as trigger */
 .map-icon-btn {
-    width: 44px; height: 44px;
+    width: 32px; height: 32px;
     padding: 0; gap: 0;
     display: inline-flex; align-items: center; justify-content: center;
-    border-radius: 12px;
+    border-radius: var(--vn-radius-sm);
     transition: border-color var(--vn-dur-base) var(--vn-ease-std),
                 background var(--vn-dur-base) var(--vn-ease-std),
                 transform var(--vn-dur-base) var(--vn-ease-std),
                 box-shadow var(--vn-dur-base) var(--vn-ease-std);
 }
-.map-icon-btn .ico { width: 20px; height: 20px; color: var(--vn-brand); transition: color var(--vn-dur-base) var(--vn-ease-std); }
+.map-icon-btn .ico { width: 16px; height: 16px; color: var(--vn-brand); transition: color var(--vn-dur-base) var(--vn-ease-std); }
 .map-icon-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(0,0,0,0.45); }
 .map-icon-btn:active { transform: translateY(0); }
 
