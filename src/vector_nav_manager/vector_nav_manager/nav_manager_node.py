@@ -307,12 +307,22 @@ class NavManagerNode(Node):
 
     def _lookup(self, name: str) -> dict | None:
         with self._lock:
-            # Exact match first, then case-insensitive
+            # 1. Exact match
             if name in self._locations:
                 return self._locations[name]
             name_lower = name.lower()
+            # 2. Case-insensitive exact match
             for k, v in self._locations.items():
                 if k.lower() == name_lower:
+                    return v
+            # 3. Partial match: stored key is a word-substring of the query
+            #    e.g. query="charging station" matches key="charging"
+            for k, v in self._locations.items():
+                if k.lower() in name_lower:
+                    return v
+            # 4. Partial match: query is a substring of a stored key
+            for k, v in self._locations.items():
+                if name_lower in k.lower():
                     return v
         return None
 
