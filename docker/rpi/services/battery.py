@@ -12,6 +12,8 @@ import json
 import logging
 import os
 import signal
+import socket
+import subprocess
 import sys
 import time
 
@@ -19,9 +21,12 @@ from smbus2 import SMBus, i2c_msg
 
 I2C_BUS = int(os.environ.get("I2C_BUS", "1"))
 ADS_ADDR = 0x48
-DIVIDER_RATIO = 4.397
+DIVIDER_RATIO = 4.3178
 POLL_SEC = float(os.environ.get("POLL_SEC", "2.0"))
 OUT_PATH = os.environ.get("OUT_PATH", "/run/vector/battery.json")
+SHUTDOWN_VOLTAGE = float(os.environ.get("SHUTDOWN_VOLTAGE", "10.0"))
+JETSON_HOST = os.environ.get("JETSON_HOST", "192.168.10.1")
+JETSON_PORT = int(os.environ.get("JETSON_PORT", "9877"))
 
 # 3S LiPo discharge curve (resting voltage)
 _TABLE = [
@@ -65,6 +70,16 @@ def voltage_to_percent(v: float) -> float:
     return 0.0
 
 
+def signal_jetson() -> None:
+    try:
+        with socket.create_connection((JETSON_HOST, JETSON_PORT), timeout=2.0) as s:
+            s.sendall(b"SHUTDOWN\n")
+            ack = s.recv(16).decode("ascii", errors="replace").strip()
+            log.info("Jetson ack: %r", ack)
+    except Exception as e:
+        log.warning("Could not signal Jetson at %s:%d — %s", JETSON_HOST, JETSON_PORT, e)
+
+
 def write_atomic(payload: dict) -> None:
     os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
     tmp = OUT_PATH + ".tmp"
@@ -91,6 +106,14 @@ def main():
                     "ts": time.time(),
                 }
                 write_atomic(payload)
+                if v <= SHUTDOWN_VOLTAGE and ema_v <= SHUTDOWN_VOLTAGE:
+                    log.critical(
+                        "Battery critical: raw=%.2fV EMA=%.2fV ≤ %.1fV — shutting down NOW!",
+                        v, ema_v, SHUTDOWN_VOLTAGE,
+                    )
+                    signal_jetson()
+                    subprocess.run(["/sbin/shutdown", "-h", "now"], check=False)
+                    sys.exit(0)
             except Exception as e:
                 log.warning("Read failed: %s", e)
             time.sleep(POLL_SEC)

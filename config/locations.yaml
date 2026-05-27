@@ -1,9 +1,13 @@
 locations:
   base:
-    x: 2.1805
-    y: 0.3817
-    yaw: 0.0945
+    x: -4.5994
+    y: 0.4429
+    yaw: -0.656
   charging:
     x: -2.2594
     y: 1.5521
     yaw: 0.6529
+  warehouse:
+    x: -6.9555
+    y: 1.2199
+    yaw: 1.5847

@@ -20,7 +20,7 @@ except ImportError:
 # 3S LiPo thresholds
 _VOLT_TABLE = [12.60, 12.30, 12.12, 11.94, 11.76, 11.55, 11.31, 11.10, 10.80, 10.20, 9.60, 8.40]
 _PCT_TABLE  = [100,   90,    80,    70,    60,    50,    40,    30,    20,    10,    5,   0  ]
-DIVIDER_RATIO = 4.397
+DIVIDER_RATIO = 4.3178
 
 _LATCH_QOS = QoSProfile(
     durability=DurabilityPolicy.TRANSIENT_LOCAL,

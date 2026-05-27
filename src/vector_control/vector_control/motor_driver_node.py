@@ -232,6 +232,7 @@ class MotorDriverNode(Node):
         self.declare_parameter('publish_tf', False)  # EKF publishes tf
         self.declare_parameter('max_accel', 1.0)  # m/s² acceleration limit
         self.declare_parameter('log_interval', 1.0)  # RPM log interval (s)
+        self.declare_parameter('standby_delay', 2.0)  # idle seconds before STBY LOW
 
         # Skid-steer slip compensation: bias how much of the angular term
         # each axle takes. front gets (1+bias), rear gets (1-bias).
@@ -275,6 +276,7 @@ class MotorDriverNode(Node):
         self.publish_tf = self.get_parameter('publish_tf').value
         self.max_accel = self.get_parameter('max_accel').value
         self.log_interval = self.get_parameter('log_interval').value
+        self.standby_delay = self.get_parameter('standby_delay').value
         self.ema_alpha = self.get_parameter('ema_alpha').value
         self.turn_front_bias = self.get_parameter('turn_front_bias').value
 
@@ -359,6 +361,10 @@ class MotorDriverNode(Node):
         # RPM diagnostic logging
         self._log_accum = 0.0
 
+        # Standby power-saving state
+        self._idle_accum = 0.0
+        self._in_standby = False
+
         # ---------- ROS interfaces ----------
         qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
 
@@ -439,6 +445,26 @@ class MotorDriverNode(Node):
         # Side-average targets retained for direction tracking / odom side stats
         v_left_target = (v_lf_target + v_lr_target) / 2.0
         v_right_target = (v_rf_target + v_rr_target) / 2.0
+
+        # --- Standby power management ---
+        all_stopped = (
+            abs(v_lf_target) < 0.001 and abs(v_lr_target) < 0.001 and
+            abs(v_rf_target) < 0.001 and abs(v_rr_target) < 0.001
+        )
+        if all_stopped:
+            self._idle_accum += dt
+            if not self._in_standby and self._idle_accum >= self.standby_delay:
+                self.stby1.off()
+                self.stby2.off()
+                self._in_standby = True
+                self.get_logger().info('Motor drivers in standby (STBY LOW)')
+        else:
+            self._idle_accum = 0.0
+            if self._in_standby:
+                self.stby1.on()
+                self.stby2.on()
+                self._in_standby = False
+                self.get_logger().info('Motor drivers active (STBY HIGH)')
 
         # --- Read encoders using PREVIOUS cycle's actual motor direction + flip logic ---
         # The encoder counts magnitude only.
