@@ -1,11 +1,10 @@
 # Vector Nav
 
 <p align="center">
-  <img src="src/vector_web/vector_web/static/logo.svg" alt="Vector Nav Logo" width="200">
+  <img src="src/vector_web/vector_web/static/logo.svg" alt="Vector Nav Logo" width="400"><br>
+Autonomous mobile robot · Offline voice control · ROS2 Humble<br>
+NVIDIA Jetson Orin Nano Super + Raspberry Pi 5
 </p>
-
-**Autonomous mobile robot · Offline voice control · ROS2 Humble**
-*NVIDIA Jetson Orin Nano Super + Raspberry Pi 5*
 
 ---
 
