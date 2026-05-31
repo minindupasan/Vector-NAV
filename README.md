@@ -1,7 +1,7 @@
 # Vector Nav
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/minindupasan/vector-nav/main/docs/logo.svg" alt="Vector Nav Logo" width="200">
+  <img src="src/vector_web/vector_web/static/logo.svg" alt="Vector Nav Logo" width="200">
 </p>
 
 **Autonomous mobile robot · Offline voice control · ROS2 Humble**
